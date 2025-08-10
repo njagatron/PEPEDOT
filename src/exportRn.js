@@ -2,11 +2,9 @@
 import JSZip from "jszip";
 import * as XLSX from "xlsx";
 
-/**
- * Pretvori dataURL u Uint8Array
- */
+/** dataURL -> bytes */
 function dataURLToBytes(dataURL) {
-  const parts = dataURL.split(",");
+  const parts = String(dataURL || "").split(",");
   const base64 = parts[1] || "";
   const bin = atob(base64);
   const bytes = new Uint8Array(bin.length);
@@ -14,9 +12,7 @@ function dataURLToBytes(dataURL) {
   return bytes;
 }
 
-/**
- * Izvuci ekstenziju iz dataURL-a (default: jpg)
- */
+/** proširi ekstenziju iz dataURL-a (default: jpg) */
 function extFromDataURL(dataURL) {
   const m = /^data:(.+?);base64,/.exec(dataURL || "");
   if (!m) return "jpg";
@@ -28,47 +24,46 @@ function extFromDataURL(dataURL) {
   return "jpg";
 }
 
-/**
- * Izradi Excel (tocke.xlsx) iz liste točaka + pdf naziva.
- * Redni broj je po (pdfIdx, page) i redoslijedu unosa (prema id).
- */
+/** Excel: RedniBroj + inicijali + ostalo */
 function buildExcel(points, pdfs) {
-  // izračun rednog broja po PDF-u i stranici
-  const ordinals = new Map(); // key: `${pdfIdx}-${page}` -> sorted array of ids
-  const byKey = {};
+  // ordinal per (pdfIdx,page)
+  const groups = {};
   points.forEach((p) => {
     const k = `${p.pdfIdx}-${p.page}`;
-    (byKey[k] ||= []).push(p);
+    (groups[k] ||= []).push(p);
   });
-  Object.keys(byKey).forEach((k) => {
-    byKey[k].sort((a, b) => a.id - b.id);
-    byKey[k].forEach((p, i) => ordinals.set(p.id, i + 1));
+  const ordMap = new Map();
+  Object.keys(groups).forEach((k) => {
+    groups[k].sort((a, b) => a.id - b.id);
+    groups[k].forEach((p, i) => ordMap.set(p.id, i + 1));
   });
 
-  const rows = points.map((p) => ({
-    RedniBroj: ordinals.get(p.id) ?? "",
-    Naziv: p.title || "",
-    Datum: p.dateISO || "",
-    Vrijeme: p.timeISO || "",
-    Komentar: p.note || "",
-    PDF: pdfs[p.pdfIdx]?.name || "",
-    Stranica: p.page ?? "",
-    X: p.x ?? "",
-    Y: p.y ?? "",
-    ImaFotku: p.imageData ? "DA" : "NE",
-  }));
+  const rows = points
+    .slice()
+    .sort((a, b) => (a.pdfIdx - b.pdfIdx) || (a.page - b.page) || (a.id - b.id))
+    .map((p) => ({
+      RedniBroj: ordMap.get(p.id) ?? "",
+      Naziv: p.title || "",
+      Datum: p.dateISO || "",
+      Vrijeme: p.timeISO || "",
+      Komentar: p.note || "",
+      "Unos (inicijali)": p.authorInitials || "",
+      PDF: pdfs[p.pdfIdx]?.name || "",
+      Stranica: p.page ?? "",
+      X: p.x ?? "",
+      Y: p.y ?? "",
+      ImaFotku: p.imageData ? "DA" : "NE",
+    }));
 
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Tocke");
-  // vrati ArrayBuffer
   return XLSX.write(wb, { bookType: "xlsx", type: "array" });
 }
 
 /**
- * Glavna funkcija za izvoz.
- * @param {Object} state - { pdfs, activePdfIdx, pageNumber, points, seqCounter, rnName, pageMap }
- * @returns {JSZip} zip instanca spremna za generateAsync(...)
+ * Export RN (osnovni paket: manifest, pdfs, points, images, excel)
+ * Napomena: nacrti s ucrtanim oznakama dodaju se u App.jsx (doExportZip) u folder "nacrti".
  */
 export async function exportRnToZip(state) {
   const {
@@ -83,7 +78,7 @@ export async function exportRnToZip(state) {
 
   const zip = new JSZip();
 
-  // 1) Manifest i metapodaci (bez binarnih polja)
+  // manifest
   const manifest = {
     rnName,
     exportedAt: new Date().toISOString(),
@@ -92,43 +87,49 @@ export async function exportRnToZip(state) {
     pageMap,
     seqCounter,
     pdfCount: pdfs.length,
-    versions: {
-      format: 2, // bumpaj ako budeš mijenjao format
-    },
+    versions: { format: 3 },
   };
   zip.file("manifest.json", JSON.stringify(manifest, null, 2));
 
-  // 2) PDF-ovi (binarno) + manifest za PDF-ove
+  // PDF binarije + manifest
   const pdfsFolder = zip.folder("pdfs");
   const pdfsManifest = [];
   pdfs.forEach((p, i) => {
-    const fileName = p.name || `tlocrt-${i + 1}.pdf`;
-    const safeName = fileName.replace(/[\\/:*?"<>|]+/g, "_");
+    const fileName = (p.name || `tlocrt-${i + 1}.pdf`).replace(/[\\/:*?"<>|]+/g, "_");
     const bytes = new Uint8Array(p.data || []);
-    pdfsFolder.file(safeName, bytes);
-    pdfsManifest.push({
-      index: i,
-      name: p.name || fileName,
-      file: safeName,
-      numPages: p.numPages || undefined,
-    });
+    pdfsFolder.file(fileName, bytes);
+    pdfsManifest.push({ index: i, name: p.name || fileName, file: fileName, numPages: p.numPages || undefined });
   });
   zip.file("pdfs/manifest.json", JSON.stringify(pdfsManifest, null, 2));
 
-  // 3) Točke – JSON (sa imageData kao dataURL radi jednostavnog importa)
+  // Točke JSON
   zip.file("points.json", JSON.stringify(points, null, 2));
 
-  // 4) Fotke i kao zasebne datoteke (nije nužno, ali praktično)
-  const imagesFolder = zip.folder("images");
-  points.forEach((p, idx) => {
-    if (p.imageData) {
-      const ext = extFromDataURL(p.imageData); // npr. jpg
-      const bytes = dataURLToBytes(p.imageData);
-      imagesFolder.file(`pt-${idx + 1}.${ext}`, bytes);
-    }
+  // Slike točaka — naziv: RedniBroj_Naziv_PDFNaziv.ext
+  // Treba ordinal map kao u Excelu
+  const groups = {};
+  points.forEach((p) => {
+    const k = `${p.pdfIdx}-${p.page}`;
+    (groups[k] ||= []).push(p);
+  });
+  const ordMap = new Map();
+  Object.keys(groups).forEach((k) => {
+    groups[k].sort((a, b) => a.id - b.id);
+    groups[k].forEach((p, i) => ordMap.set(p.id, i + 1));
   });
 
-  // 5) Excel (tocke.xlsx)
+  const imagesFolder = zip.folder("fotografije");
+  points.forEach((p) => {
+    if (!p.imageData) return;
+    const ord = ordMap.get(p.id) ?? 0;
+    const pdfName = (pdfs[p.pdfIdx]?.name || `pdf-${p.pdfIdx + 1}`).replace(/[\\/:*?"<>|]+/g, "_");
+    const titlePart = (p.title || "foto").replace(/[\\/:*?"<>|]+/g, "_");
+    const ext = extFromDataURL(p.imageData);
+    const bytes = dataURLToBytes(p.imageData);
+    imagesFolder.file(`${ord}_${titlePart}_${pdfName}.${ext}`, bytes);
+  });
+
+  // Excel
   const excelBuffer = buildExcel(points, pdfs);
   zip.file("tocke.xlsx", excelBuffer);
 
