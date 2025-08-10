@@ -1,0 +1,134 @@
+/* Lagani, čisti stil – fokus na rasporedu i tap-targetima */
+:root{
+  --bg:#0d1f24;
+  --card:#10282f;
+  --edge:#12343b;
+  --ink:#e7ecef;
+  --accent:#2a6f77;
+  --gold:#c9a227;
+}
+
+.header{
+  display:flex; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap;
+}
+.app-title{ margin:0; font-size:18px; flex:1; }
+.header-actions{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.btn{
+  padding:10px 14px; border-radius:12px; border:1px solid var(--edge);
+  background:#0f2328; color:var(--ink); cursor:pointer;
+}
+.btn.big{ padding:12px 18px; font-weight:600; }
+.btn.warn{ background:#d99114; border-color:#d99114; color:#fff; }
+.btn.danger{ background:#a62c2b; border-color:#a62c2b; color:#fff; }
+.btn.ghost{ background:transparent; }
+.btn:disabled{ opacity:.6; cursor:not-allowed; }
+
+.section-title{ font-size:14px; color:#c7d3d7; margin-bottom:8px; }
+.muted{ font-size:12px; color:#c7d3d7; }
+.spacer{ flex:1; }
+
+.hint.success{
+  padding:6px 10px; border-radius:10px; background:#10321f; border:1px solid #1d6b3a; color:#bfe9c8;
+}
+
+/* RN */
+.rn-row{
+  display:flex; gap:8px; flex-wrap:nowrap; overflow:auto; padding-bottom:2px;
+}
+.rn-chip{ display:flex; gap:6px; align-items:center; }
+.rn-btn{
+  padding:8px 12px; border-radius:10px; border:1px solid var(--edge);
+  background:#132b31; color:var(--ink); white-space:nowrap; cursor:pointer;
+}
+.rn-btn.is-active{ background:var(--accent); color:#fff; }
+.rn-add{
+  padding:8px 12px; border-radius:10px; border:1px dashed var(--edge);
+  background:transparent; color:var(--ink); cursor:pointer; min-width:44px;
+}
+
+/* PDF tabs */
+.pdf-tabs{
+  display:flex; gap:8px; align-items:center; flex-wrap:nowrap; overflow:auto; padding:8px; background:#0f2328;
+  border:1px solid var(--edge); border-radius:12px;
+}
+.pdf-chip{ display:flex; gap:6px; align-items:center; }
+.pdf-btn{
+  padding:6px 10px; border-radius:10px; border:1px solid var(--edge);
+  background:#132b31; color:var(--ink); white-space:nowrap; cursor:pointer;
+}
+.pdf-btn.is-active{ background:var(--accent); color:#fff; }
+.pdf-count{ margin-left:auto; font-size:12px; color:#c7d3d7; }
+
+/* ⋯ meni (RN/PDF) */
+.menu{ position:relative; }
+.menu > summary{
+  list-style:none; cursor:pointer; padding:6px 8px; border:1px solid var(--edge);
+  border-radius:10px; background:transparent; color:var(--ink);
+}
+.menu[open] > summary{ background:#0f2328; }
+.menu-items{
+  position:absolute; top:110%; right:0; min-width:180px; background:#0f2328;
+  border:1px solid var(--edge); border-radius:12px; padding:6px; display:flex; flex-direction:column; gap:6px; z-index:20;
+  box-shadow: 0 12px 28px rgba(0,0,0,.35);
+}
+.menu-items > button{
+  padding:8px 10px; border-radius:10px; border:1px solid var(--edge); background:#132b31; color:var(--ink); cursor:pointer; text-align:left;
+}
+.menu-items > button.danger{ background:#a62c2b; border-color:#a62c2b; color:#fff; }
+
+/* Export dropdown */
+.export-wrap{ position:relative; }
+.export-menu{
+  position:absolute; top:110%; right:0; min-width:260px; background:#0f2328; border:1px solid var(--edge);
+  border-radius:12px; padding:6px; display:flex; flex-direction:column; gap:6px; z-index:30;
+  box-shadow: 0 12px 28px rgba(0,0,0,.35);
+}
+.export-menu > button{
+  padding:10px 12px; border-radius:10px; border:1px solid var(--edge); background:#132b31; color:var(--ink); text-align:left; cursor:pointer;
+}
+.export-menu hr{ border:none; border-top:1px solid var(--edge); margin:6px 0; }
+
+/* PDF viewer */
+.pdf-wrap{
+  position:relative; background:#0a1a1f; border:1px solid var(--edge); border-radius:12px; overflow:hidden;
+  display:flex; justify-content:center; align-items:center; min-height:420px;
+}
+/* Ograniči dimenzije PDF canvasa fluidno */
+.pdf-page{
+  width: min(100vw - 48px, 980px) !important;
+  height: auto !important;
+}
+
+/* Pager */
+.pager{ display:flex; gap:8px; align-items:center; margin-top:8px; }
+
+/* Lista točaka */
+.list{ display:grid; gap:8px; }
+.list-compact .thumb{ width:36px; height:36px; }
+.list-compact .card{ padding:6px; }
+.card{
+  border:1px solid var(--edge); border-radius:12px; background:#0f2328;
+  padding:10px; display:flex; gap:10px; align-items:center;
+}
+.thumb{
+  width:48px; height:48px; border-radius:8px; overflow:hidden; background:#09161a;
+  display:flex; align-items:center; justify-content:center; flex-shrink:0;
+}
+.thumb > img{ width:100%; height:100%; object-fit:cover; display:block; }
+.noimg{ font-size:12px; color:#7b8a8f; }
+.meta{ flex:1; min-width:0; }
+.title{ font-weight:600; color:var(--ink); font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sub{ font-size:12px; opacity:.9; }
+.note{ font-size:12px; opacity:.9; margin-top:4px; }
+.actions{ display:flex; gap:8px; flex-wrap:wrap; }
+
+.footer{ text-align:center; font-size:12px; color:#8ea3a9; padding:16px; }
+
+/* Mobile tweaks */
+@media (max-width: 640px){
+  .btn{ padding:12px 14px; }
+  .btn.big{ padding:14px 16px; }
+  .app-title{ font-size:16px; }
+  .title{ font-size:13px; }
+  .export-menu{ min-width: 220px; }
+}
