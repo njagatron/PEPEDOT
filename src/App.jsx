@@ -67,7 +67,6 @@ export default function App() {
   // Lista/UX
   const [showAllSessions, setShowAllSessions] = useState(false);
   const [compactList, setCompactList] = useState(false);
-  const [modeInfoOnly, setModeInfoOnly] = useState(false); // "TOČKA INFO" — ne dodaje točku
 
   // Korisnik – inicijali
   const [userInitials, setUserInitials] = useState(() => localStorage.getItem("pepedot2_user_initials") || "");
@@ -76,7 +75,7 @@ export default function App() {
   const [stagedPhoto, setStagedPhoto] = useState(null);
   const [stagedNotice, setStagedNotice] = useState(false);
 
-  // Hover/touch oblačić (stabilno, bez stroba)
+  // Hover/touch oblačić (stabilno)
   const [hoverPointId, setHoverPointId] = useState(null);
   const hoverInT = useRef(null);
   const hoverOutT = useRef(null);
@@ -85,7 +84,8 @@ export default function App() {
   const [photoEditTargetId, setPhotoEditTargetId] = useState(null);
   const editPhotoInputRef = useRef(null);
 
-  const viewerRef = useRef(null);
+  // Refs
+  const captureRef = useRef(null); // cijela “capture” površina (wrapper PDF-a)
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
 
@@ -97,6 +97,7 @@ export default function App() {
   }, []);
 
   // Helpers
+  const clamp01 = (v) => Math.min(1, Math.max(0, v));
   const safePersist = (key, value) => {
     try {
       localStorage.setItem(key, value);
@@ -130,7 +131,7 @@ export default function App() {
       setUserInitials(initials);
       localStorage.setItem("pepedot2_user_initials", initials);
     }
-  }, [activeRn]); // jednom po RN-u
+  }, [activeRn]);
 
   // Učitavanje/snimanje stanja RN-a
   const loadActiveRn = (name) => {
@@ -143,10 +144,18 @@ export default function App() {
         return;
       }
       const obj = JSON.parse(raw);
+
+      // sanitize (klamp x/y)
+      const sanitizedPoints = (obj.points || []).map((p) => ({
+        ...p,
+        x: clamp01(p.x ?? 0),
+        y: clamp01(p.y ?? 0),
+      }));
+
       setPdfs(obj.pdfs || []);
       setActivePdfIdx(obj.activePdfIdx || 0);
       setPageNumber(obj.pageNumber || 1);
-      setPoints(obj.points || []);
+      setPoints(sanitizedPoints);
       setSeqCounter(obj.seqCounter || 0);
       setPageMap(obj.pageMap || {});
     } catch (e) {
@@ -178,25 +187,23 @@ export default function App() {
     setActiveRn(name);
     setPdfs([]); setActivePdfIdx(0); setPageNumber(1);
     setPoints([]); setSeqCounter(0); setPageMap({});
-    // inicijali će se tražiti iz useEffect([activeRn])
   };
 
-  const renameRn = () => {
-    if (!activeRn) return window.alert("Nema aktivnog RN-a.");
-    const newName = window.prompt("Novi naziv RN-a:", activeRn);
-    if (!newName || newName === activeRn) return;
+  const renameRn = (oldName) => {
+    const newName = window.prompt("Novi naziv RN-a:", oldName);
+    if (!newName || newName === oldName) return;
     if (rnList.includes(newName)) return window.alert("RN s tim nazivom već postoji.");
-    const oldKey = STORAGE_PREFIX + activeRn;
+    const oldKey = STORAGE_PREFIX + oldName;
     const newKey = STORAGE_PREFIX + newName;
     const data = localStorage.getItem(oldKey);
     if (data) {
       safePersist(newKey, data);
       localStorage.removeItem(oldKey);
     }
-    const updated = rnList.map((r) => (r === activeRn ? newName : r));
+    const updated = rnList.map((r) => (r === oldName ? newName : r));
     setRnList(updated);
     safePersist("pepedot2_rn_list", JSON.stringify(updated));
-    setActiveRn(newName);
+    if (activeRn === oldName) setActiveRn(newName);
   };
 
   const deleteRnWithConfirm = (rnName) => {
@@ -259,8 +266,8 @@ export default function App() {
   };
 
   const renamePdf = (idx) => {
-    if (!pdfs.length) return;
     const p = pdfs[idx];
+    if (!p) return;
     const newName = window.prompt("Novi naziv PDF-a:", p.name || "");
     if (!newName || newName === p.name) return;
     const next = pdfs.map((item, i) => (i === idx ? { ...item, name: newName } : item));
@@ -275,10 +282,12 @@ export default function App() {
     if (confirmation !== p.name) return window.alert("Naziv PDF-a nije ispravan, brisanje otkazano.");
     if (!window.confirm(`Obrisati PDF "${p.name}"? (točke s tog PDF-a će se obrisati)`)) return;
     const filteredPoints = points.filter((pt) => pt.pdfIdx !== idx);
-    const compacted = filteredPoints.map((pt) => {
-      const newIdx = pt.pdfIdx > idx ? pt.pdfIdx - 1 : pt.pdfIdx;
-      return { ...pt, pdfIdx: newIdx };
-    });
+    const compacted = filteredPoints.map((pt) => ({
+      ...pt,
+      pdfIdx: pt.pdfIdx > idx ? pt.pdfIdx - 1 : pt.pdfIdx,
+      x: clamp01(pt.x),
+      y: clamp01(pt.y),
+    }));
     const nextPdfs = pdfs.filter((_, i) => i !== idx);
     let nextActive = activePdfIdx;
     if (idx === activePdfIdx) nextActive = Math.max(0, activePdfIdx - 1);
@@ -316,36 +325,30 @@ export default function App() {
     return idx >= 0 ? idx + 1 : null;
   };
 
-  const isTooCloseToExisting = (x, y, rect, minPx = 18) => {
-    const list = pointsOnCurrent;
-    const px = x * rect.width;
-    const py = y * rect.height;
-    return list.some((p) => {
-      const qx = p.x * rect.width;
-      const qy = p.y * rect.height;
-      const dx = qx - px;
-      const dy = qy - py;
-      return Math.hypot(dx, dy) < minPx;
-    });
-  };
-
-  const nowParts = () => {
-    const d = new Date();
-    const dateISO = d.toISOString().slice(0, 10);
-    const timeISO = d.toTimeString().slice(0, 8);
-    return { dateISO, timeISO };
-  };
-
+  // DODAVANJE TOČKE — samo unutar PDF-a
   const handleViewerClick = (e) => {
-    if (modeInfoOnly) return;
-    const node = viewerRef.current;
-    if (!node) return;
-    const rect = node.getBoundingClientRect();
-    if (!rect) return;
+    if (!captureRef.current) return;
+    const rect = captureRef.current.getBoundingClientRect();
     const x = (e.clientX - rect.left) / rect.width;
     const y = (e.clientY - rect.top) / rect.height;
 
-    if (isTooCloseToExisting(x, y, rect, 18)) {
+    // Ako klik nije u [0,1]×[0,1] → ignoriraj (izvan PDF-a)
+    if (x < 0 || x > 1 || y < 0 || y > 1) return;
+
+    // Sigurnosna mreža – klampaj
+    const xx = clamp01(x);
+    const yy = clamp01(y);
+
+    // preblizu?
+    const list = pointsOnCurrent;
+    const px = xx * rect.width;
+    const py = yy * rect.height;
+    const tooClose = list.some((p) => {
+      const qx = p.x * rect.width;
+      const qy = p.y * rect.height;
+      return Math.hypot(qx - px, qy - py) < 18;
+    });
+    if (tooClose) {
       window.alert("Točka je preblizu postojećoj. Odaberi obližnju poziciju.");
       return;
     }
@@ -353,7 +356,9 @@ export default function App() {
     const defTitle = `T${seqCounter + 1}`;
     const title = window.prompt("Naziv točke (npr. A123VIO):", defTitle) || defTitle;
 
-    const { dateISO: defDate, timeISO: defTime } = nowParts();
+    const d = new Date();
+    const defDate = d.toISOString().slice(0, 10);
+    const defTime = d.toTimeString().slice(0, 8);
     const dateISO = window.prompt("Datum (YYYY-MM-DD):", defDate) || defDate;
     const timeISO = window.prompt("Vrijeme (HH:MM:SS):", defTime) || defTime;
 
@@ -363,7 +368,8 @@ export default function App() {
       id: Date.now() + Math.floor(Math.random() * 1000),
       pdfIdx: activePdfIdx,
       page: pageNumber,
-      x, y,
+      x: xx,
+      y: yy,
       title,
       dateISO,
       timeISO,
@@ -386,8 +392,9 @@ export default function App() {
     if (!p) return;
     const title = window.prompt("Naziv točke:", p.title || "") ?? p.title;
 
-    const dateDefault = p.dateISO || nowParts().dateISO;
-    const timeDefault = p.timeISO || nowParts().timeISO;
+    const d = new Date();
+    const dateDefault = p.dateISO || d.toISOString().slice(0, 10);
+    const timeDefault = p.timeISO || d.toTimeString().slice(0, 8);
     const dateISO = window.prompt("Datum (YYYY-MM-DD):", dateDefault) ?? dateDefault;
     const timeISO = window.prompt("Vrijeme (HH:MM:SS):", timeDefault) ?? timeDefault;
 
@@ -396,7 +403,16 @@ export default function App() {
     const initials = window.prompt("Inicijali (opcionalno):", p.authorInitials || userInitials || "") ?? (p.authorInitials || userInitials || "");
 
     const next = [...points];
-    next[globalIdx] = { ...p, title, dateISO, timeISO, note, authorInitials: (initials || "").toUpperCase() };
+    next[globalIdx] = {
+      ...p,
+      title,
+      dateISO,
+      timeISO,
+      note,
+      authorInitials: (initials || "").toUpperCase(),
+      x: clamp01(p.x),
+      y: clamp01(p.y),
+    };
     setPoints(next);
   };
 
@@ -424,7 +440,6 @@ export default function App() {
     const dataURL = await readFileAsDataURL(file);
     setStagedPhoto(dataURL);
     setStagedNotice(true);
-    setModeInfoOnly(false);
   };
 
   const onGallerySelected = async (e) => {
@@ -434,7 +449,6 @@ export default function App() {
     const dataURL = await readFileAsDataURL(file);
     setStagedPhoto(dataURL);
     setStagedNotice(true);
-    setModeInfoOnly(false);
   };
 
   // EDIT FOTKE NA POSTOJEĆOJ TOČKI
@@ -460,7 +474,7 @@ export default function App() {
     setPoints((prev) => prev.map((p) => (p.id === pointId ? { ...p, imageData: null } : p)));
   };
 
-  // EXCEL (trenutna stranica) — RedniBroj + inicijali
+  // EXCEL (trenutna stranica)
   const exportExcel = () => {
     const sorted = pointsOnCurrent.slice().sort((a, b) => a.id - b.id);
     const rows = sorted.map((p, i) => ({
@@ -513,28 +527,25 @@ export default function App() {
 
   // Pomoćno: dataURL -> bytes
   const dataURLToBytes = (dataURL) => {
-    const [meta, b64] = dataURL.split(",");
+    const [meta, b64] = String(dataURL || "").split(",");
     const bin = atob(b64 || "");
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     return bytes;
   };
 
-  // Export RN (.zip) — sada dodaje i PNG nacrte sa točkama
+  // Export RN (.zip) — dodaje i nacrte (PNG) sa oznakama
   const doExportZip = async () => {
     if (!activeRn) return window.alert("Nema aktivnog RN-a.");
     if (!pdfs.length) return window.alert("Nema PDF-ova u RN-u.");
 
-    // 1) osnovni ZIP iz helpera (manifest, pdfs, points, excel, images...)
     const state = { pdfs, activePdfIdx, pageNumber, points, seqCounter, rnName: activeRn, pageMap };
     const zip = await exportRnToZip(state);
 
-    // 2) dodaj nacrte sa točkama
     const folderNacrti = zip.folder("nacrti");
     const snapshotNode = () => document.getElementById("pdf-capture-area");
     const wait = (ms) => new Promise((res) => setTimeout(res, ms));
 
-    // pređi sve PDF-ove i stranice
     for (let i = 0; i < pdfs.length; i++) {
       setActivePdf(i);
       await wait(150);
@@ -551,13 +562,12 @@ export default function App() {
       }
     }
 
-    // 3) spremi ZIP
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const blob = await zip.generateAsync({ type: "blob" });
     saveAs(blob, `${activeRn}-${stamp}.zip`);
   };
 
-  // Export ELABORAT — ostaje kao ranije (također koristi pravilno imenovanje fotki)
+  // Export ELABORAT (ostaje kao ranije)
   const exportElaborat = async () => {
     if (!activeRn) return window.alert("Nema aktivnog RN-a.");
     if (!pdfs.length) return window.alert("Nema PDF-ova u RN-u.");
@@ -567,16 +577,16 @@ export default function App() {
     const folderNacrti = zip.folder("nacrti");
     const folderFotos = zip.folder("fotografije");
 
-    // mapiranje ordinala po (pdfIdx,page)
-    const byKey = {};
+    // ordinal per (pdfIdx,page)
+    const groups = {};
     points.forEach((p) => {
       const k = `${p.pdfIdx}-${p.page}`;
-      (byKey[k] ||= []).push(p);
+      (groups[k] ||= []).push(p);
     });
     const ordMap = new Map();
-    Object.keys(byKey).forEach((k) => {
-      byKey[k].sort((a, b) => a.id - b.id);
-      byKey[k].forEach((p, i) => ordMap.set(p.id, i + 1));
+    Object.keys(groups).forEach((k) => {
+      groups[k].sort((a, b) => a.id - b.id);
+      groups[k].forEach((p, i) => ordMap.set(p.id, i + 1));
     });
 
     // Excel — RedniBroj + inicijali
@@ -602,7 +612,7 @@ export default function App() {
     const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
     folderExcel.file("tocke.xlsx", excelBuffer);
 
-    // Nacrti — snapshot svih stranica (sa oznakama)
+    // Nacrti — snapshot svih stranica
     const snapshotNode = () => document.getElementById("pdf-capture-area");
     const wait = (ms) => new Promise((res) => setTimeout(res, ms));
 
@@ -648,7 +658,7 @@ export default function App() {
     saveAs(blob, `ELABORAT-${activeRn}-${stamp}.zip`);
   };
 
-  // Import ZIP (kao i prije)
+  // Import ZIP
   const doImportZip = async (file) => {
     if (!file) return;
     if (!activeRn) return window.alert("Odaberi ili kreiraj RN prije importa.");
@@ -660,10 +670,15 @@ export default function App() {
     } catch {}
     try {
       const imported = await importRnFromZip(file);
+      const sanitizedPoints = (imported.points || []).map((p) => ({
+        ...p,
+        x: clamp01(p.x ?? 0),
+        y: clamp01(p.y ?? 0),
+      }));
       setPdfs(imported.pdfs || []);
       setActivePdfIdx(imported.activePdfIdx || 0);
       setPageNumber(imported.pageNumber || 1);
-      setPoints(imported.points || []);
+      setPoints(sanitizedPoints);
       setSeqCounter(imported.seqCounter || 0);
       setPageMap(imported.pageMap || {});
       const payload = {
@@ -672,7 +687,7 @@ export default function App() {
         activePdfIdx: imported.activePdfIdx || 0,
         pageNumber: imported.pageNumber || 1,
         pageMap: imported.pageMap || {},
-        points: imported.points || [],
+        points: sanitizedPoints,
         seqCounter: imported.seqCounter || 0,
       };
       localStorage.setItem(STORAGE_PREFIX + activeRn, JSON.stringify(payload));
@@ -696,7 +711,7 @@ export default function App() {
     input.click();
   };
 
-  // RN selektor
+  // RN selektor — sada uz svaki RN: Preimenuj/Obriši
   const RnPicker = () => (
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
       {rnList.map((rn) => (
@@ -704,22 +719,22 @@ export default function App() {
           <button
             style={{ ...btn.base, ...(activeRn === rn ? btn.primary : {}) }}
             onClick={() => { setActiveRn(rn); loadActiveRn(rn); }}
+            title={`Otvori RN "${rn}"`}
           >
             {rn}
           </button>
-          <button style={{ ...btn.base, ...btn.danger }} onClick={() => deleteRnWithConfirm(rn)}>
-            Obriši
-          </button>
+          <button style={{ ...btn.base }} title="Preimenuj RN" onClick={() => renameRn(rn)}>📝</button>
+          <button style={{ ...btn.base, ...btn.danger }} title="Obriši RN" onClick={() => deleteRnWithConfirm(rn)}>🗑️</button>
         </div>
       ))}
     </div>
   );
 
-  // Render točke
+  // Render točke (tooltip bez “stroba”)
   const renderPoint = (p) => {
     const isOpen = hoverPointId === p.id;
-    const left = `${p.x * 100}%`;
-    const top  = `${p.y * 100}%`;
+    const left = `${clamp01(p.x) * 100}%`;
+    const top  = `${clamp01(p.y) * 100}%`;
     const ord  = getOrdinalForPoint(p);
 
     const onEnter = () => {
@@ -752,7 +767,6 @@ export default function App() {
         onTouchStart={onTouch}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* marker s brojem */}
         <div
           style={{
             position: "absolute",
@@ -772,7 +786,6 @@ export default function App() {
           {ord}
         </div>
 
-        {/* tooltip */}
         <div
           style={{
             position: "absolute",
@@ -829,8 +842,6 @@ export default function App() {
           </div>
 
           <button style={{ ...btn.base, ...btn.primary }} onClick={createRn}>Novi RN</button>
-          <button style={{ ...btn.base }} onClick={renameRn} disabled={!activeRn}>Preimenuj RN</button>
-          <button style={{ ...btn.base, ...btn.danger }} onClick={() => deleteRnWithConfirm(activeRn)} disabled={!activeRn}>Obriši RN</button>
 
           <input
             type="file"
@@ -844,8 +855,6 @@ export default function App() {
               cursor: (!activeRn || pdfs.length >= MAX_PDFS) ? "not-allowed" : "pointer",
             }}
           />
-          <button style={{ ...btn.base }} onClick={() => renamePdf(activePdfIdx)} disabled={!pdfs.length}>Preimenuj PDF</button>
-          <button style={{ ...btn.base, ...btn.danger }} onClick={() => deletePdfWithConfirm(activePdfIdx)} disabled={!pdfs.length}>Obriši PDF</button>
         </header>
 
         {persistWarning && (
@@ -854,7 +863,7 @@ export default function App() {
           </div>
         )}
 
-        {/* RN lista */}
+        {/* RN lista (sada uključuje 📝/🗑️) */}
         <section style={{ ...panel, marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <h3 style={{ margin: 0, fontSize: 14, color: "#c7d3d7" }}>Radni nalozi</h3>
@@ -862,7 +871,7 @@ export default function App() {
           <RnPicker />
         </section>
 
-        {/* PDF TABOVI */}
+        {/* PDF TABOVI (sada imaju 📝 i 🗑️ uz naziv) */}
         {!!pdfs.length && (
           <section style={{ ...panel, marginBottom: 12 }}>
             <div style={{
@@ -871,19 +880,22 @@ export default function App() {
               borderRadius: 12, overflowX: "auto",
             }}>
               {pdfs.map((p, i) => (
-                <button
-                  key={p.id}
-                  onClick={() => setActivePdf(i)}
-                  title={p.name || `PDF ${i + 1}`}
-                  style={{
-                    padding: "6px 10px", borderRadius: 10, border: `1px solid ${deco.edge}`,
-                    background: i === activePdfIdx ? deco.accent : "#132b31",
-                    color: i === activePdfIdx ? "#fff" : deco.ink,
-                    whiteSpace: "nowrap", cursor: "pointer",
-                  }}
-                >
-                  {p.name || `PDF ${i + 1}`}
-                </button>
+                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <button
+                    onClick={() => setActivePdf(i)}
+                    title={p.name || `PDF ${i + 1}`}
+                    style={{
+                      padding: "6px 10px", borderRadius: 10, border: `1px solid ${deco.edge}`,
+                      background: i === activePdfIdx ? deco.accent : "#132b31",
+                      color: i === activePdfIdx ? "#fff" : deco.ink,
+                      whiteSpace: "nowrap", cursor: "pointer",
+                    }}
+                  >
+                    {p.name || `PDF ${i + 1}`}
+                  </button>
+                  <button style={{ ...btn.base }} title="Preimenuj PDF" onClick={() => renamePdf(i)}>📝</button>
+                  <button style={{ ...btn.base, ...btn.danger }} title="Obriši PDF" onClick={() => deletePdfWithConfirm(i)}>🗑️</button>
+                </div>
               ))}
               <span style={{ marginLeft: "auto", fontSize: 12, color: "#c7d3d7" }}>
                 {pdfs.length}/{MAX_PDFS}
@@ -909,11 +921,6 @@ export default function App() {
             {/* SKRIVENI INPUT ZA PROMJENU FOTKE */}
             <input ref={editPhotoInputRef} type="file" accept="image/*" onChange={onEditPhotoSelected} style={{ display: "none" }} />
 
-            {/* TIPKA: TOČKA INFO */}
-            <button style={{ ...btn.base }} onClick={() => setModeInfoOnly(s => !s)}>
-              {modeInfoOnly ? "TOČKA INFO: UKLJUČENO" : "TOČKA INFO: ISKLJUČENO"}
-            </button>
-
             <button style={{ ...btn.base }} onClick={exportExcel}>Izvoz Excel</button>
             <button style={{ ...btn.base, ...btn.gold }} onClick={exportPDF}>Izvoz PDF (trenutna stranica)</button>
             <button style={{ ...btn.base }} onClick={doExportZip}>💾 Export RN (.zip)</button>
@@ -927,9 +934,9 @@ export default function App() {
             </div>
           )}
 
+          {/* PDF + Overlay – captureRef je točno koliko i PDF površina, klik izvan ignoriramo */}
           <div
             id="pdf-capture-area"
-            ref={viewerRef}
             style={{
               position: "relative",
               background: "#0a1a1f",
@@ -941,25 +948,30 @@ export default function App() {
               alignItems: "center",
               minHeight: 420,
             }}
-            onClick={handleViewerClick}
           >
             {activePdfFile ? (
-              <Document
-                file={activePdfFile}
-                onLoadSuccess={onPdfLoadSuccess}
-                loading={<div style={{ padding: 16 }}>Učitavanje PDF-a…</div>}
-                error={<div style={{ padding: 16, color: "#f3b0b0" }}>Greška pri učitavanju PDF-a.</div>}
+              <div
+                ref={captureRef}
+                onClick={handleViewerClick}
+                style={{ position: "relative", lineHeight: 0 }}
               >
-                <Page pageNumber={pageNumber} renderTextLayer={false} renderAnnotationLayer={false} width={900} />
-              </Document>
+                <Document
+                  file={activePdfFile}
+                  onLoadSuccess={onPdfLoadSuccess}
+                  loading={<div style={{ padding: 16 }}>Učitavanje PDF-a…</div>}
+                  error={<div style={{ padding: 16, color: "#f3b0b0" }}>Greška pri učitavanju PDF-a.</div>}
+                >
+                  <Page pageNumber={pageNumber} renderTextLayer={false} renderAnnotationLayer={false} width={900} />
+                </Document>
+
+                {/* Overlay točke – sada točno preko PDF canvasa */}
+                <div style={{ position: "absolute", inset: 0, pointerEvents: "auto", zIndex: 5 }}>
+                  {pointsOnCurrent.map(renderPoint)}
+                </div>
+              </div>
             ) : (
               <div style={{ padding: 24, color: "#c7d3d7" }}>Dodaj PDF datoteku za prikaz.</div>
             )}
-
-            {/* Overlay točke */}
-            <div style={{ position: "absolute", inset: 0, pointerEvents: "auto", zIndex: 5 }}>
-              {pointsOnCurrent.map(renderPoint)}
-            </div>
           </div>
 
           {!!pdfs.length && (
@@ -1042,8 +1054,11 @@ export default function App() {
                                 onClick={() => removePhotoFromPoint(p.id)}>Ukloni fotku</button>
                       )}
                       {hasPhoto && (
-                        <a href={p.imageData} download={`${(ord ?? 0)}_${p.title || "foto"}_${pdfs[p.pdfIdx]?.name || "PDF"}.jpg`}
-                           style={{ ...btn.base, ...btn.ghost, textDecoration: "none", padding: compactList ? "4px 8px" : "8px 12px", fontSize: compactList ? 12 : 14 }}>
+                        <a
+                          href={p.imageData}
+                          download={`${(ord ?? 0)}_${p.title || "foto"}_${pdfs[p.pdfIdx]?.name || "PDF"}.jpg`}
+                          style={{ ...btn.base, ...btn.ghost, textDecoration: "none", padding: compactList ? "4px 8px" : "8px 12px", fontSize: compactList ? 12 : 14 }}
+                        >
                           ⬇️
                         </a>
                       )}
