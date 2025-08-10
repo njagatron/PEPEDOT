@@ -3,6 +3,7 @@ import { Document, Page, pdfjs } from "react-pdf";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import * as XLSX from "xlsx";
+import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { exportRnToZip } from "./exportRn";
 import { importRnFromZip } from "./importRn";
@@ -60,13 +61,16 @@ export default function App() {
   const [numPages, setNumPages] = useState(1);
 
   // Točke
-  const [points, setPoints] = useState([]); // [{id,pdfIdx,page,x,y,title,dateISO,timeISO,note,imageData?}]
+  const [points, setPoints] = useState([]); // [{id,pdfIdx,page,x,y,title,dateISO,timeISO,note,imageData?,authorInitials?}]
   const [seqCounter, setSeqCounter] = useState(0);
 
   // Lista/UX
   const [showAllSessions, setShowAllSessions] = useState(false);
   const [compactList, setCompactList] = useState(false);
   const [modeInfoOnly, setModeInfoOnly] = useState(false); // "TOČKA INFO" način (ne dodaje točke)
+
+  // Korisnik – inicijali
+  const [userInitials, setUserInitials] = useState(() => localStorage.getItem("pepedot2_user_initials") || "");
 
   // Foto staging (kamera/galerija -> klik na nacrt postavlja točku s fotkom)
   const [stagedPhoto, setStagedPhoto] = useState(null); // dataURL
@@ -202,6 +206,10 @@ export default function App() {
   // PDF
   const onPdfLoadSuccess = ({ numPages }) => {
     setNumPages(numPages || 1);
+    // spremi numPages u aktivni PDF
+    setPdfs((prev) =>
+      prev.map((p, i) => (i === activePdfIdx ? { ...p, numPages: numPages || 1 } : p))
+    );
   };
 
   const setActivePdf = (idx) => {
@@ -309,7 +317,7 @@ export default function App() {
 
   const nowParts = () => {
     const d = new Date();
-    aconst dateISO = d.toISOString().slice(0, 10);
+    const dateISO = d.toISOString().slice(0, 10);
     const timeISO = d.toTimeString().slice(0, 8); // HH:MM:SS
     return { dateISO, timeISO };
   };
@@ -338,7 +346,7 @@ export default function App() {
     const note = window.prompt("Komentar (opcionalno):", "") || "";
 
     const newPoint = {
-      id: Date.now(),
+      id: Date.now() + Math.floor(Math.random() * 1000),
       pdfIdx: activePdfIdx,
       page: pageNumber,
       x, y,
@@ -347,6 +355,7 @@ export default function App() {
       timeISO,
       note,
       imageData: stagedPhoto || null,
+      authorInitials: userInitials || "",
     };
 
     setPoints((prev) => [...prev, newPoint]);
@@ -369,8 +378,11 @@ export default function App() {
     const timeISO = window.prompt("Vrijeme (HH:MM:SS):", timeDefault) ?? timeDefault;
 
     const note = window.prompt("Komentar (opcionalno):", p.note || "") ?? p.note;
+
+    const initials = window.prompt("Inicijali (opcionalno):", p.authorInitials || userInitials || "") ?? (p.authorInitials || userInitials || "");
+
     const next = [...points];
-    next[globalIdx] = { ...p, title, dateISO, timeISO, note };
+    next[globalIdx] = { ...p, title, dateISO, timeISO, note, authorInitials: initials };
     setPoints(next);
   };
 
@@ -436,24 +448,27 @@ export default function App() {
 
   // EXCEL (ručni izvoz trenutne stranice)
   const exportExcel = () => {
-    const list = pointsOnCurrent.map((p, i) => ({
-      ID: i + 1,
-      Naziv: p.title || "",
-      Datum: p.dateISO || "",
-      Vrijeme: p.timeISO || "",
-      Komentar: p.note || "",
-      PDF: pdfs[p.pdfIdx]?.name || "",
-      Stranica: p.page,
-      X: p.x,
-      Y: p.y,
-    }));
+    const list = pointsOnCurrent
+      .sort((a, b) => a.id - b.id)
+      .map((p, i) => ({
+        ID: i + 1,
+        Naziv: p.title || "",
+        Datum: p.dateISO || "",
+        Vrijeme: p.timeISO || "",
+        Komentar: p.note || "",
+        "Unos (inicijali)": p.authorInitials || "",
+        PDF: pdfs[p.pdfIdx]?.name || "",
+        Stranica: p.page,
+        X: p.x,
+        Y: p.y,
+      }));
     const ws = XLSX.utils.json_to_sheet(list);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Tocke");
     XLSX.writeFile(wb, "tocke.xlsx");
   };
 
-  // PDF Snapshot (kanvas s točkama)
+  // PDF Snapshot (kanvas s točkama) – za TRENUTNI prikaz
   const exportPDF = async () => {
     const node = document.getElementById("pdf-capture-area");
     if (!node) return;
@@ -466,7 +481,7 @@ export default function App() {
     pdf.save("nacrt_s_tockama.pdf");
   };
 
-  // Export RN (ZIP) + Import
+  // Regularni Export RN (ZIP) – zadržavamo kao i prije
   const doExportZip = async () => {
     if (!activeRn) return window.alert("Nema aktivnog RN-a.");
     const state = { pdfs, activePdfIdx, pageNumber, points, seqCounter, rnName: activeRn, pageMap };
@@ -475,38 +490,110 @@ export default function App() {
     saveAs(await zip.generateAsync({ type: "blob" }), `${activeRn}-${stamp}.zip`);
   };
 
-  const doImportZip = async (file) => {
-    if (!file) return;
-    if (!activeRn) return window.alert("Odaberi ili kreiraj RN prije importa.");
-    try {
-      const current = { pdfs, activePdfIdx, pageNumber, points, seqCounter, rnName: activeRn, pageMap };
-      const backupZip = await exportRnToZip(current);
-      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-      saveAs(await backupZip.generateAsync({ type: "blob" }), `BACKUP-${activeRn}-${stamp}.zip`);
-    } catch {}
-    try {
-      const imported = await importRnFromZip(file);
-      setPdfs(imported.pdfs || []);
-      setActivePdfIdx(imported.activePdfIdx || 0);
-      setPageNumber(imported.pageNumber || 1);
-      setPoints(imported.points || []);
-      setSeqCounter(imported.seqCounter || 0);
-      setPageMap(imported.pageMap || {});
-      const payload = {
-        rnName: activeRn,
-        pdfs: imported.pdfs || [],
-        activePdfIdx: imported.activePdfIdx || 0,
-        pageNumber: imported.pageNumber || 1,
-        pageMap: imported.pageMap || {},
-        points: imported.points || [],
-        seqCounter: imported.seqCounter || 0,
-      };
-      localStorage.setItem(STORAGE_PREFIX + activeRn, JSON.stringify(payload));
-      window.alert("Import završen.");
-    } catch (e) {
-      console.error(e);
-      window.alert("Greška pri importu ZIP-a.");
+  // Pomoćno: dataURL -> bytes
+  const dataURLToBytes = (dataURL) => {
+    const [meta, b64] = dataURL.split(",");
+    const bin = atob(b64 || "");
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  };
+
+  // Export ELABORAT (ZIP) – Excel + svi nacrti + sve fotke + manifest + points.json
+  const exportElaborat = async () => {
+    if (!activeRn) return window.alert("Nema aktivnog RN-a.");
+    if (!pdfs.length) return window.alert("Nema PDF-ova u RN-u.");
+
+    const zip = new JSZip();
+    const folderExcel = zip.folder("excel");
+    const folderNacrti = zip.folder("nacrti");
+    const folderFotos = zip.folder("fotografije");
+
+    // 1) Excel (sve točke, sortirano po: pdfIdx, page, id)
+    const byKey = {};
+    points.forEach((p) => {
+      const k = `${p.pdfIdx}-${p.page}`;
+      (byKey[k] ||= []).push(p);
+    });
+    const ordMap = new Map(); // p.id -> ordinal per (pdfIdx,page)
+    Object.keys(byKey).forEach((k) => {
+      byKey[k].sort((a, b) => a.id - b.id);
+      byKey[k].forEach((p, i) => ordMap.set(p.id, i + 1));
+    });
+
+    const excelRows = points
+      .slice()
+      .sort((a, b) => (a.pdfIdx - b.pdfIdx) || (a.page - b.page) || (a.id - b.id))
+      .map((p) => ({
+        ID: ordMap.get(p.id) ?? "",
+        Naziv: p.title || "",
+        Datum: p.dateISO || "",
+        Vrijeme: p.timeISO || "",
+        Komentar: p.note || "",
+        "Unos (inicijali)": p.authorInitials || "",
+        PDF: pdfs[p.pdfIdx]?.name || "",
+        Stranica: p.page ?? "",
+        X: p.x ?? "",
+        Y: p.y ?? "",
+        ImaFotku: p.imageData ? "DA" : "NE",
+      }));
+    const ws = XLSX.utils.json_to_sheet(excelRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Tocke");
+    const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    folderExcel.file("tocke.xlsx", excelBuffer);
+
+    // 2) Nacrti (sve stranice svih PDF-ova s ucrtanim brojevima)
+    //    Tehnika: programatski prođemo kroz PDF-ove i stranice, postavimo state i uhvatimo "#pdf-capture-area"
+    const snapshotNode = () => document.getElementById("pdf-capture-area");
+    const wait = (ms) => new Promise((res) => setTimeout(res, ms));
+
+    for (let i = 0; i < pdfs.length; i++) {
+      setActivePdf(i);
+      // malo pričekati da se PDF zamijeni/renderira
+      await wait(120);
+
+      const pages = pdfs[i].numPages || 1;
+      for (let p = 1; p <= pages; p++) {
+        setPageNumber(p);
+        await wait(180); // pričekaj render (ovisno o uređaju možda povećati)
+
+        const node = snapshotNode();
+        if (!node) continue;
+        const canvas = await html2canvas(node, { scale: 2 });
+        const pngDataURL = canvas.toDataURL("image/png");
+
+        const pdfName = (pdfs[i].name || `pdf-${i + 1}`).replace(/[\\/:*?"<>|]+/g, "_");
+        folderNacrti.file(`${pdfName}-str${p}.png`, pngDataURL.split(",")[1], { base64: true });
+      }
     }
+
+    // 3) Fotke — spremi sve ako postoje
+    points.forEach((pt) => {
+      if (!pt.imageData) return;
+      const ord = ordMap.get(pt.id) ?? 0;
+      const pdfName = (pdfs[pt.pdfIdx]?.name || `pdf-${pt.pdfIdx + 1}`).replace(/[\\/:*?"<>|]+/g, "_");
+      const titlePart = (pt.title || "foto").replace(/[\\/:*?"<>|]+/g, "_");
+      const bytes = dataURLToBytes(pt.imageData);
+      folderFotos.file(`${pdfName}-p${pt.page}-id${ord}_${titlePart}.jpg`, bytes);
+    });
+
+    // 4) manifest + points.json
+    const manifest = {
+      rnName: activeRn,
+      exportedAt: new Date().toISOString(),
+      pdfs: pdfs.map((p, i) => ({ index: i, name: p.name, numPages: p.numPages || 1 })),
+      totals: { points: points.length, pdfs: pdfs.length },
+      userInitials,
+      version: 1,
+    };
+    zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+    zip.file("points.json", JSON.stringify(points, null, 2));
+
+    // 5) Generate ZIP
+    const blob = await zip.generateAsync({ type: "blob" });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    saveAs(blob, `ELABORAT-${activeRn}-${stamp}.zip`);
   };
 
   const onClickImportButton = () => {
@@ -618,7 +705,7 @@ export default function App() {
             willChange: "opacity",
           }}
         >
-          <div><strong>{p.title || "(bez naziva)"}</strong></div>
+          <div><strong>{p.title || "(bez naziva)"}{p.authorInitials ? ` — ${p.authorInitials}` : ""}</strong></div>
           <div style={{ opacity: 0.9 }}>
             Datum: {p.dateISO || "(n/a)"} · Vrijeme: {p.timeISO || "(n/a)"}
           </div>
@@ -632,8 +719,26 @@ export default function App() {
     <div style={{ minHeight: "100vh", background: deco.bg, color: deco.ink, fontFamily: "Inter,system-ui,Arial,sans-serif" }}>
       <div style={{ maxWidth: 1180, margin: "0 auto", padding: 16 }}>
         {/* HEADER + GLAVNE TIPKE */}
-        <header style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <header style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <h1 style={{ margin: 0, fontSize: 18, flex: 1 }}>PEPEDOT 2</h1>
+
+          {/* Inicijali */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <label htmlFor="inicijali" style={{ fontSize: 12, opacity: 0.85 }}>Inicijali:</label>
+            <input
+              id="inicijali"
+              value={userInitials}
+              onChange={(e) => {
+                setUserInitials(e.target.value.toUpperCase());
+                localStorage.setItem("pepedot2_user_initials", e.target.value.toUpperCase());
+              }}
+              placeholder="npr. JN"
+              style={{
+                padding: "6px 8px", width: 84, borderRadius: 8, border: `1px solid ${deco.edge}`,
+                background: "#0f2328", color: deco.ink,
+              }}
+            />
+          </div>
 
           <button style={{ ...btn.base, ...btn.primary }} onClick={createRn}>Novi RN</button>
           <button style={{ ...btn.base }} onClick={renameRn} disabled={!activeRn}>Preimenuj RN</button>
@@ -741,9 +846,14 @@ export default function App() {
             </button>
 
             <button style={{ ...btn.base }} onClick={exportExcel}>Izvoz Excel</button>
-            <button style={{ ...btn.base, ...btn.gold }} onClick={exportPDF}>Izvoz PDF</button>
+            <button style={{ ...btn.base, ...btn.gold }} onClick={exportPDF}>Izvoz PDF (trenutna stranica)</button>
             <button style={{ ...btn.base }} onClick={doExportZip}>💾 Export RN (.zip)</button>
             <button style={{ ...btn.base }} onClick={onClickImportButton}>📂 Import RN (.zip)</button>
+
+            {/* NOVO: ELABORAT */}
+            <button style={{ ...btn.base, ...btn.primary }} onClick={exportElaborat} disabled={!pdfs.length}>
+              📦 Export ELABORAT
+            </button>
           </div>
 
           {/* Info o staged fotografiji */}
@@ -853,7 +963,7 @@ export default function App() {
 
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 600, color: deco.ink, fontSize: compactList ? 12 : 14 }}>
-                        {ord != null ? `${ord}. ` : ""}{p.title || "(bez naziva)"}
+                        {ord != null ? `${ord}. ` : ""}{p.title || "(bez naziva)"}{p.authorInitials ? ` — ${p.authorInitials}` : ""}
                       </div>
                       <div style={{ fontSize: 12, opacity: 0.9 }}>
                         Datum: {p.dateISO || "(n/a)"} · Vrijeme: {p.timeISO || "(n/a)"} · PDF: {pdfs[p.pdfIdx]?.name || "?"} · str: {p.page}
