@@ -53,7 +53,10 @@ export default function App() {
   // Lista/UX
   const [showAllSessions, setShowAllSessions] = useState(false);
   const [compactList, setCompactList] = useState(false);
-  const [showPreview, setShowPreview] = useState(false); // default: PREDPREGLED isključen
+  const [showPreview, setShowPreview] = useState(false); // “Predpregled” default OFF
+
+  // Dodavanje točke – RUČNI prekidač
+  const [addPointMode, setAddPointMode] = useState(false);
 
   // Korisnik – inicijali
   const [userInitials, setUserInitials] = useState(() => localStorage.getItem("pepedot2_user_initials") || "");
@@ -62,7 +65,7 @@ export default function App() {
   const [stagedPhoto, setStagedPhoto] = useState(null);
   const [stagedNotice, setStagedNotice] = useState(false);
 
-  // Tooltip
+  // Tooltip/hover
   const [hoverPointId, setHoverPointId] = useState(null);
   const hoverInT = useRef(null);
   const hoverOutT = useRef(null);
@@ -75,8 +78,17 @@ export default function App() {
   const [exportOpen, setExportOpen] = useState(false);
   const exportBtnRef = useRef(null);
 
-  // Refs
+  // Viewer (pan & zoom)
   const captureRef = useRef(null);
+  const viewerInnerRef = useRef(null);
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const panState = useRef({ panning: false, startX: 0, startY: 0, originX: 0, originY: 0, moved: false });
+
+  // mob/desktop
+  const isTouch = typeof window !== "undefined" ? window.matchMedia("(pointer: coarse)").matches : false;
+
+  // file pickeri (globalni + edit)
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
 
@@ -90,13 +102,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    return () => {
-      clearTimeout(hoverInT.current);
-      clearTimeout(hoverOutT.current);
-    };
+    return () => { clearTimeout(hoverInT.current); clearTimeout(hoverOutT.current); };
   }, []);
 
   const clamp01 = (v) => Math.min(1, Math.max(0, v));
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
   const safePersist = (key, value) => {
     try {
       localStorage.setItem(key, value);
@@ -116,11 +127,9 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    setRnList(loadRnList());
-  }, []);
+  useEffect(() => { setRnList(loadRnList()); }, []);
 
-  // inicijali pri otvaranju/kreiranju RN-a
+  // inicijali pri otvaranju
   useEffect(() => {
     if (!activeRn) return;
     let initials = localStorage.getItem("pepedot2_user_initials") || userInitials;
@@ -142,9 +151,7 @@ export default function App() {
         return;
       }
       const obj = JSON.parse(raw);
-      const sanitizedPoints = (obj.points || []).map((p) => ({
-        ...p, x: clamp01(p.x ?? 0), y: clamp01(p.y ?? 0),
-      }));
+      const sanitizedPoints = (obj.points || []).map((p) => ({ ...p, x: clamp01(p.x ?? 0), y: clamp01(p.y ?? 0) }));
       setPdfs(obj.pdfs || []);
       setActivePdfIdx(obj.activePdfIdx || 0);
       setPageNumber(obj.pageNumber || 1);
@@ -156,9 +163,7 @@ export default function App() {
 
   const persistActiveRn = () => {
     if (!activeRn) return;
-    const payload = JSON.stringify({
-      rnName: activeRn, pdfs, activePdfIdx, pageNumber, pageMap, points, seqCounter
-    });
+    const payload = JSON.stringify({ rnName: activeRn, pdfs, activePdfIdx, pageNumber, pageMap, points, seqCounter });
     safePersist(STORAGE_PREFIX + activeRn, payload);
   };
   useEffect(() => { persistActiveRn(); }, [activeRn, pdfs, activePdfIdx, pageNumber, points, seqCounter, pageMap]);
@@ -166,8 +171,7 @@ export default function App() {
   // RN akcije
   const createRn = () => {
     if (rnList.length >= MAX_RN) return window.alert(`Dosegnut je maksimalan broj RN-ova (${MAX_RN}).`);
-    const name = window.prompt("Naziv novog RN-a:");
-    if (!name) return;
+    const name = window.prompt("Naziv novog RN-a:"); if (!name) return;
     if (rnList.includes(name)) return window.alert("RN s tim nazivom već postoji.");
     const updated = [...rnList, name];
     setRnList(updated);
@@ -293,18 +297,56 @@ export default function App() {
     return idx >= 0 ? idx + 1 : null;
   };
 
-  // Dodavanje točke samo unutar PDF-a
-  const handleViewerClick = (e) => {
-    if (!captureRef.current) return;
-    const rect = captureRef.current.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width;
-    const y = (e.clientY - rect.top) / rect.height;
-    if (x < 0 || x > 1 || y < 0 || y > 1) return;
-    const xx = clamp01(x), yy = clamp01(y);
+  // --- Image compression (less storage) ---
+  const loadImage = (src) =>
+    new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src; });
+  const compressDataUrl = async (dataURL, maxSide = 1600, quality = 0.82) => {
+    const img = await loadImage(dataURL);
+    let { width, height } = img;
+    const scale = Math.min(1, maxSide / Math.max(width, height));
+    const w = Math.round(width * scale);
+    const h = Math.round(height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0, w, h);
+    return canvas.toDataURL("image/jpeg", quality);
+  };
+  const readAndCompress = async (file) =>
+    new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = async () => {
+        try {
+          const compressed = await compressDataUrl(fr.result);
+        resolve(compressed);
+        } catch (e) { reject(e); }
+      };
+      fr.onerror = reject;
+      fr.readAsDataURL(file);
+    });
 
-    const px = xx * rect.width, py = yy * rect.height;
-    const tooClose = pointsOnCurrent.some((p) => Math.hypot(p.x * rect.width - px, p.y * rect.height - py) < 18);
-    if (tooClose) return window.alert("Točka je preblizu postojećoj. Odaberi obližnju poziciju.");
+  // --- Dodavanje točke (trigger kad je addPointMode=ON) ---
+  const addPointAtClientXY = (clientX, clientY) => {
+    if (!captureRef.current || !viewerInnerRef.current) return;
+    const rect = captureRef.current.getBoundingClientRect();
+
+    // u lokalne (0..1) koordinate uz pan/zoom
+    const localX = (clientX - rect.left - offset.x) / rect.width / zoom;
+    const localY = (clientY - rect.top - offset.y) / rect.height / zoom;
+    if (localX < 0 || localX > 1 || localY < 0 || localY > 1) return;
+
+    const xx = clamp01(localX);
+    const yy = clamp01(localY);
+
+    // preblizu?
+    const px = (clientX - rect.left);
+    const py = (clientY - rect.top);
+    const tooClose = pointsOnCurrent.some((p) => {
+      const qx = (p.x * rect.width) * zoom + offset.x;
+      const qy = (p.y * rect.height) * zoom + offset.y;
+      return Math.hypot(qx - px, qy - py) < 18;
+    });
+    if (tooClose) { window.alert("Točka je preblizu postojećoj. Odaberi obližnju poziciju."); return; }
 
     const defTitle = `T${seqCounter + 1}`;
     const title = window.prompt("Naziv točke (npr. A123VIO):", defTitle) || defTitle;
@@ -326,6 +368,99 @@ export default function App() {
     if (stagedPhoto) { setStagedPhoto(null); setStagedNotice(false); }
   };
 
+  // --- Pan & Zoom handlers (default ponašanje) ---
+  const onMouseDown = (e) => {
+    if (e.button !== 0) return;
+    if (!captureRef.current) return;
+    if (addPointMode) return; // u modu dodavanja ne započinji pan
+    panState.current = {
+      panning: true,
+      startX: e.clientX, startY: e.clientY,
+      originX: offset.x, originY: offset.y,
+      moved: false,
+    };
+  };
+  const onMouseMove = (e) => {
+    if (!panState.current.panning) return;
+    const dx = e.clientX - panState.current.startX;
+    const dy = e.clientY - panState.current.startY;
+    if (Math.hypot(dx, dy) > 3) panState.current.moved = true;
+    setOffset({ x: panState.current.originX + dx, y: panState.current.originY + dy });
+  };
+  const onMouseUp = (e) => {
+    if (panState.current.panning) {
+      panState.current.panning = false;
+      return;
+    }
+    // ako nismo panali i addPointMode je ON – dodaj točku jednim klikom
+    if (addPointMode && e.type === "mouseup") {
+      addPointAtClientXY(e.clientX, e.clientY);
+    }
+  };
+
+  const onWheel = (e) => {
+    if (!captureRef.current) return;
+    e.preventDefault();
+    const rect = captureRef.current.getBoundingClientRect();
+    const mx = e.clientX - rect.left - offset.x;
+    const my = e.clientY - rect.top - offset.y;
+    const delta = -e.deltaY;
+    const factor = delta > 0 ? 1.1 : 0.9;
+    const newZoom = clamp(zoom * factor, 1, 4);
+    const newOffset = {
+      x: mx - (mx * newZoom) / zoom + offset.x,
+      y: my - (my * newZoom) / zoom + offset.y,
+    };
+    setZoom(newZoom);
+    setOffset(newOffset);
+  };
+
+  // Touch (pan + pinch + tap za točku kad je addPointMode)
+  const touchState = useRef({ touches: [], lastDist: 0 });
+  const getDist = (t1, t2) => Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+
+  const onTouchStart = (e) => {
+    const ts = e.touches;
+    if (ts.length === 1 && !addPointMode) {
+      panState.current = {
+        panning: true,
+        startX: ts[0].clientX, startY: ts[0].clientY,
+        originX: offset.x, originY: offset.y,
+        moved: false,
+      };
+    } else if (ts.length === 2) {
+      touchState.current.touches = [ts[0], ts[1]];
+      touchState.current.lastDist = getDist(ts[0], ts[1]);
+    }
+  };
+  const onTouchMove = (e) => {
+    const ts = e.touches;
+    if (ts.length === 1 && panState.current.panning) {
+      const dx = ts[0].clientX - panState.current.startX;
+      const dy = ts[0].clientY - panState.current.startY;
+      if (Math.hypot(dx, dy) > 3) panState.current.moved = true;
+      setOffset({ x: panState.current.originX + dx, y: panState.current.originY + dy });
+    } else if (ts.length === 2) {
+      const dist = getDist(ts[0], ts[1]);
+      const factor = dist / (touchState.current.lastDist || dist);
+      const newZoom = clamp(zoom * factor, 1, 4);
+      setZoom(newZoom);
+      touchState.current.lastDist = dist;
+    }
+  };
+  const onTouchEnd = (e) => {
+    // ako je bio pan – samo ugasi
+    if (panState.current.panning) {
+      panState.current.panning = false;
+      return;
+    }
+    // tap = dodaj točku kad je addPointMode
+    if (addPointMode && e.changedTouches && e.changedTouches.length === 1) {
+      const t = e.changedTouches[0];
+      addPointAtClientXY(t.clientX, t.clientY);
+    }
+  };
+
   // Uredi/obriši točku
   const editPoint = (globalIdx) => {
     const p = points[globalIdx]; if (!p) return;
@@ -343,19 +478,32 @@ export default function App() {
   };
   const deletePoint = (globalIdx) => { if (window.confirm("Obrisati točku?")) setPoints((prev) => prev.filter((_, i) => i !== globalIdx)); };
 
-  // FOTO (kamera/galerija)
+  // FOTO (kamera/galerija) – kompresija
   const onPickCamera = () => cameraInputRef.current?.click();
   const onPickGallery = () => galleryInputRef.current?.click();
-  const readFileAsDataURL = (file) => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(file); });
-  const onCameraSelected = async (e) => { const f = e.target.files?.[0]; e.target.value=""; if (!f) return; setStagedPhoto(await readFileAsDataURL(f)); setStagedNotice(true); };
-  const onGallerySelected = async (e) => { const f = e.target.files?.[0]; e.target.value=""; if (!f) return; setStagedPhoto(await readFileAsDataURL(f)); setStagedNotice(true); };
+  const onCameraSelected = async (e) => {
+    const f = e.target.files?.[0]; e.target.value="";
+    if (!f) return;
+    const dataURL = await readAndCompress(f);
+    setStagedPhoto(dataURL);
+    setStagedNotice(true);
+    setAddPointMode(true); // čim je foto učitana, uključi dodavanje točke
+  };
+  const onGallerySelected = async (e) => {
+    const f = e.target.files?.[0]; e.target.value="";
+    if (!f) return;
+    const dataURL = await readAndCompress(f);
+    setStagedPhoto(dataURL);
+    setStagedNotice(true);
+    setAddPointMode(true);
+  };
 
   // EDIT FOTKE NA POSTOJEĆOJ TOČKI
   const startEditPhoto = (pointId) => { setPhotoEditTargetId(pointId); editPhotoInputRef.current?.click(); };
   const onEditPhotoSelected = async (e) => {
     const file = e.target.files?.[0]; e.target.value="";
     if (!file || !photoEditTargetId) return;
-    const dataURL = await readFileAsDataURL(file);
+    const dataURL = await readAndCompress(file);
     setPoints((prev) => prev.map((p) => (p.id === photoEditTargetId ? { ...p, imageData: dataURL } : p)));
     setPhotoEditTargetId(null);
   };
@@ -522,18 +670,7 @@ export default function App() {
     } catch (e) { console.error(e); window.alert("Greška pri importu ZIP-a."); }
   };
 
-  const onClickImportButton = () => {
-    const input = document.createElement("input");
-    input.type = "file"; input.accept = ".zip,application/zip";
-    input.onchange = (e) => {
-      const file = e.target.files?.[0]; if (!file) return;
-      if (!window.confirm("Importat ćeš RN iz ZIP-a i prebrisati trenutačne podatke (napravit će se BACKUP). Nastaviti?")) return;
-      doImportZip(file);
-    };
-    input.click();
-  };
-
-  // RN traka (ikone umjesto dropdowna) + brojač
+  // RN traka (ikone + brojač + +)
   const RnPicker = () => (
     <div className="rn-row">
       {rnList.map((rn) => (
@@ -564,20 +701,62 @@ export default function App() {
     </div>
   );
 
+  // Tooltip “gravitira” prema centru
   const renderPoint = (p) => {
     const isOpen = hoverPointId === p.id;
-    const left = `${clamp01(p.x) * 100}%`;
-    const top  = `${clamp01(p.y) * 100}%`;
+    const xx = clamp01(p.x), yy = clamp01(p.y);
+    const leftPercent = xx * 100, topPercent = yy * 100;
     const ord  = getOrdinalForPoint(p);
 
     const onEnter = () => { clearTimeout(hoverOutT.current); hoverInT.current = setTimeout(() => setHoverPointId(p.id), 80); };
     const onLeave = () => { clearTimeout(hoverInT.current); hoverOutT.current = setTimeout(() => setHoverPointId(null), 120); };
     const onTouch = () => { clearTimeout(hoverInT.current); clearTimeout(hoverOutT.current); setHoverPointId(p.id); setTimeout(() => setHoverPointId((cur) => (cur === p.id ? null : cur)), 1600); };
 
+    const dx = xx - 0.5;
+    const dy = yy - 0.5;
+    let tipPos = "top";
+    if (Math.abs(dx) > 0.35) tipPos = dx < 0 ? "right" : "left";
+    if (yy < 0.15) tipPos = "bottom";
+
+    const tipStyleBase = {
+      position: "absolute",
+      background: "rgba(0,0,0,0.9)",
+      color: "#fff",
+      padding: "6px 8px",
+      borderRadius: 8,
+      whiteSpace: "nowrap",
+      fontSize: 12,
+      pointerEvents: "none",
+      zIndex: 7,
+      opacity: isOpen ? 1 : 0,
+      visibility: isOpen ? "visible" : "hidden",
+      transition: "opacity 120ms ease, visibility 120ms ease",
+      maxWidth: 220,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+    };
+
+    const tipStyle =
+      tipPos === "top"
+        ? { ...tipStyleBase, left: "50%", bottom: "120%", transform: "translateX(-50%)" }
+        : tipPos === "bottom"
+        ? { ...tipStyleBase, left: "50%", top: "120%", transform: "translateX(-50%)" }
+        : tipPos === "left"
+        ? { ...tipStyleBase, right: "120%", top: "50%", transform: "translateY(-50%)" }
+        : { ...tipStyleBase, left: "120%", top: "50%", transform: "translateY(-50%)" }; // right
+
     return (
-      <div key={p.id}
-        style={{ position: "absolute", left, top, transform: "translate(-50%, -50%)", width: 36, height: 36, zIndex: 6 }}
-        onMouseEnter={onEnter} onMouseLeave={onLeave} onTouchStart={onTouch} onClick={(e) => e.stopPropagation()}
+      <div
+        key={p.id}
+        style={{
+          position: "absolute",
+          left: `${leftPercent}%`,
+          top: `${topPercent}%`,
+          transform: `translate(-50%, -50%)`,
+          width: 36, height: 36, zIndex: 6,
+        }}
+        onMouseEnter={onEnter} onMouseLeave={onLeave} onTouchStart={onTouch}
+        onClick={(e) => e.stopPropagation()}
       >
         <div
           style={{
@@ -591,15 +770,7 @@ export default function App() {
           {ord}
         </div>
 
-        <div
-          style={{
-            position: "absolute", left: "50%", bottom: "120%", transform: "translateX(-50%)",
-            background: "rgba(0,0,0,0.9)", color: "#fff", padding: "6px 8px", borderRadius: 8,
-            whiteSpace: "nowrap", fontSize: 12, pointerEvents: "none", zIndex: 7,
-            opacity: isOpen ? 1 : 0, visibility: isOpen ? "visible" : "hidden",
-            transition: "opacity 120ms ease, visibility 120ms ease",
-          }}
-        >
+        <div style={tipStyle}>
           <div><strong>{p.title || "(bez naziva)"}{p.authorInitials ? ` — ${p.authorInitials}` : ""}</strong></div>
           <div style={{ opacity: 0.9 }}>Datum: {p.dateISO || "(n/a)"} · Vrijeme: {p.timeISO || "(n/a)"}</div>
           {!!p.note && <div style={{ opacity: 0.9 }}>{p.note}</div>}
@@ -607,6 +778,8 @@ export default function App() {
       </div>
     );
   };
+
+  const resetView = () => { setZoom(1); setOffset({ x: 0, y: 0 }); };
 
   return (
     <div style={{ minHeight: "100vh", background: deco.bg, color: deco.ink, fontFamily: "Inter,system-ui,Arial,sans-serif" }}>
@@ -629,175 +802,4 @@ export default function App() {
               {exportOpen && (
                 <div className="export-menu">
                   <button onClick={() => { setExportOpen(false); exportExcel(); }}>Export Excel (trenutna stranica)</button>
-                  <button onClick={() => { setExportOpen(false); exportPDF(); }}>Export PDF (trenutna stranica)</button>
-                  <button onClick={() => { setExportOpen(false); doExportZip(); }}>Export RN (.zip)</button>
-                  <button onClick={() => { setExportOpen(false); exportElaborat(); }}>Export ELABORAT (.zip)</button>
-                  <hr />
-                  <button onClick={() => { setExportOpen(false); onClickImportButton(); }}>📂 Import RN (.zip)</button>
-                </div>
-              )}
-            </div>
-
-            <button className="btn" onClick={onPickCamera} disabled={!activeRn}>📷 Kamera</button>
-            <button className="btn" onClick={onPickGallery} disabled={!activeRn}>🖼️ Galerija</button>
-
-            <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={onCameraSelected} style={{ display: "none" }} />
-            <input ref={galleryInputRef} type="file" accept="image/*" onChange={onGallerySelected} style={{ display: "none" }} />
-            <input ref={editPhotoInputRef} type="file" accept="image/*" onChange={onEditPhotoSelected} style={{ display: "none" }} />
-          </div>
-        </header>
-
-        {persistWarning && (
-          <div style={{ ...panel, background: "#3b2b17", borderColor: "#8e5d12", color: "#fff", marginBottom: 12 }}>
-            {persistWarning}
-          </div>
-        )}
-
-        {/* RN lista */}
-        <section style={{ ...panel, marginBottom: 12 }}>
-          <div className="section-title">Radni nalozi</div>
-          <RnPicker />
-        </section>
-
-        {/* PDF TABOVI — “📄 Dodaj PDF” skroz desno */}
-        {!!pdfs.length && (
-          <section style={{ ...panel, marginBottom: 12 }}>
-            <div className="pdf-tabs">
-              {pdfs.map((p, i) => (
-                <div key={p.id} className="pdf-chip">
-                  <button
-                    onClick={() => setActivePdf(i)}
-                    title={p.name || `PDF ${i + 1}`}
-                    className={`pdf-btn ${i === activePdfIdx ? "is-active" : ""}`}
-                  >
-                    {p.name || `PDF ${i + 1}`}
-                  </button>
-                  <button className="iconbtn" title="Preimenuj PDF" onClick={() => renamePdf(i)}>📝</button>
-                  <button className="iconbtn danger" title="Obriši PDF" onClick={() => deletePdfWithConfirm(i)}>🗑️</button>
-                </div>
-              ))}
-
-              <span className="pdf-count">{pdfs.length}/{MAX_PDFS}</span>
-
-              <button
-                className="btn big"
-                onClick={handlePdfPicker}
-                disabled={!activeRn || pdfs.length >= MAX_PDFS}
-                title={!activeRn ? "Najprije odaberi ili kreiraj RN" : (pdfs.length >= MAX_PDFS ? `Maksimum ${MAX_PDFS} PDF-ova` : "Dodaj PDF")}
-                style={{ marginLeft: "auto" }}
-              >
-                📄 Dodaj PDF
-              </button>
-            </div>
-          </section>
-        )}
-
-        {/* VIEWER */}
-        <section style={{ ...panel, marginBottom: 12 }}>
-          <div className="bar">
-            <div className="muted">
-              Aktivni PDF: <strong style={{ color: deco.gold }}>{pdfs[activePdfIdx]?.name || "(nema)"}</strong>
-            </div>
-            <div className="spacer" />
-            {stagedNotice && stagedPhoto && (
-              <div className="hint success">Fotografija je učitana. Tapni/klikni na nacrt gdje želiš točku.</div>
-            )}
-          </div>
-
-          <div id="pdf-capture-area" className="pdf-wrap">
-            {activePdfFile ? (
-              <div ref={captureRef} onClick={handleViewerClick} style={{ position: "relative", lineHeight: 0 }}>
-                <Document
-                  file={activePdfFile}
-                  onLoadSuccess={onPdfLoadSuccess}
-                  loading={<div style={{ padding: 16 }}>Učitavanje PDF-a…</div>}
-                  error={<div style={{ padding: 16, color: "#f3b0b0" }}>Greška pri učitavanju PDF-a.</div>}
-                >
-                  <Page className="pdf-page" pageNumber={pageNumber} renderTextLayer={false} renderAnnotationLayer={false} />
-                </Document>
-
-                <div style={{ position: "absolute", inset: 0, pointerEvents: "auto", zIndex: 5 }}>
-                  {pointsOnCurrent.map(renderPoint)}
-                </div>
-              </div>
-            ) : (
-              <div style={{ padding: 24, color: "#c7d3d7" }}>Dodaj PDF datoteku za prikaz.</div>
-            )}
-          </div>
-
-          {!!pdfs.length && (
-            <div className="pager">
-              <button className="btn" onClick={() => setPageNumber((n) => Math.max(1, n - 1))} disabled={pageNumber <= 1}>◀︎</button>
-              <div className="muted">Stranica {pageNumber} / {numPages}</div>
-              <button className="btn" onClick={() => setPageNumber((n) => Math.min(numPages, n + 1))} disabled={pageNumber >= numPages}>▶︎</button>
-            </div>
-          )}
-        </section>
-
-        {/* LISTA TOČAKA */}
-        <section style={{ ...panel, marginBottom: 12 }}>
-          <div className="bar">
-            <div className="section-title">Fotografije (lista)</div>
-            <div className="spacer" />
-            <button className="btn" onClick={() => setShowAllSessions((s) => !s)}>
-              {showAllSessions ? "Prikaži samo novu sesiju" : "Prikaži sve sesije"}
-            </button>
-            <button className="btn" onClick={() => setCompactList((s) => !s)}>
-              {compactList ? "Prikaz: detaljno" : "📱 Kompaktna lista"}
-            </button>
-            <button className="btn" onClick={() => setShowPreview((s) => !s)}>
-              {showPreview ? "Sakrij predpregled" : "Prikaži predpregled"}
-            </button>
-          </div>
-
-          <div className={`list ${compactList ? "list-compact" : ""}`}>
-            {points
-              .filter((p) => (showAllSessions ? true : (p.pdfIdx === activePdfIdx && p.page === pageNumber)))
-              .map((p, globalIdx) => {
-                const hasPhoto = !!p.imageData;
-                const ord = getOrdinalForPoint(p);
-                return (
-                  <div key={p.id} className="card">
-                    <div className="thumb">
-                      {showPreview ? (
-                        hasPhoto ? <img src={p.imageData} alt="" /> : <span className="noimg">{compactList ? "—" : "bez slike"}</span>
-                      ) : (
-                        <span className="noimg">•</span>
-                      )}
-                    </div>
-
-                    <div className="meta">
-                      <div className="title">{ord != null ? `${ord}. ` : ""}{p.title || "(bez naziva)"}{p.authorInitials ? ` — ${p.authorInitials}` : ""}</div>
-                      <div className="sub">Datum: {p.dateISO || "(n/a)"} · Vrijeme: {p.timeISO || "(n/a)"} · PDF: {pdfs[p.pdfIdx]?.name || "?"} · str: {p.page}</div>
-                      {!compactList && !!p.note && <div className="note">Komentar: {p.note}</div>}
-                    </div>
-
-                    <div className="actions">
-                      <button className="iconbtn" title="Uredi točku" onClick={() => editPoint(globalIdx)}>✏️</button>
-                      <button className="iconbtn danger" title="Obriši točku" onClick={() => deletePoint(globalIdx)}>🗑️</button>
-                      <button className="iconbtn" title={hasPhoto ? "Promijeni fotku" : "Dodaj fotku"} onClick={() => startEditPhoto(p.id)}>🖼️</button>
-                      {hasPhoto && (
-                        <>
-                          <button className="iconbtn warn" title="Ukloni fotku" onClick={() => removePhotoFromPoint(p.id)}>🚫</button>
-                          <a
-                            className="iconbtn ghost"
-                            title="Preuzmi fotku"
-                            href={p.imageData}
-                            download={`${(ord ?? 0)}_${p.title || "foto"}_${pdfs[p.pdfIdx]?.name || "PDF"}.jpg`}
-                          >
-                            ⬇️
-                          </a>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-          </div>
-        </section>
-
-        <footer className="footer">© PEPEDOT 2</footer>
-      </div>
-    </div>
-  );
-}
+                  <button onClick={() => {
