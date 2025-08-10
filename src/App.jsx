@@ -7,8 +7,9 @@ import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { exportRnToZip } from "./exportRn";
 import { importRnFromZip } from "./importRn";
-import "react-pdf/dist/Page/AnnotationLayer.css";
-import "react-pdf/dist/Page/TextLayer.css";
+// ✅ KORISTI ESM PUTANJE ZA CSS — stabilnije na Vercelu / CRA
+import "react-pdf/dist/esm/Page/AnnotationLayer.css";
+import "react-pdf/dist/esm/Page/TextLayer.css";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
@@ -206,10 +207,8 @@ export default function App() {
   // PDF
   const onPdfLoadSuccess = ({ numPages }) => {
     setNumPages(numPages || 1);
-    // spremi numPages u aktivni PDF
-    setPdfs((prev) =>
-      prev.map((p, i) => (i === activePdfIdx ? { ...p, numPages: numPages || 1 } : p))
-    );
+    // ⚠️ ne upisujemo ovdje u pdfs da ne izazovemo dodatni reload Document-a
+    // setPdfs(prev => prev.map((p,i)=> i===activePdfIdx ? {...p, numPages:numPages||1} : p));
   };
 
   const setActivePdf = (idx) => {
@@ -244,7 +243,6 @@ export default function App() {
       };
       const next = [...pdfs, item];
       setPdfs(next);
-      // ostani na trenutnom PDF-u (ne prebacuj automatski)
     } catch (e) {
       console.error(e);
       window.alert("Neuspješno dodavanje PDF-a.");
@@ -287,6 +285,14 @@ export default function App() {
     }));
     setPageMap(pm2);
   };
+
+  // ✅ KLJUČNO: memoiziraj file objekt da Document ne misli da je svaki render "novi file"
+  const activePdfFile = useMemo(() => {
+    const p = pdfs[activePdfIdx];
+    if (!p) return null;
+    // Nemoj kreirati novi Uint8Array dok se pdfs/activePdfIdx ne promijeni
+    return { data: new Uint8Array(p.data) };
+  }, [pdfs, activePdfIdx]);
 
   // TOČKE
   const pointsOnCurrent = useMemo(
@@ -543,20 +549,18 @@ export default function App() {
     const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
     folderExcel.file("tocke.xlsx", excelBuffer);
 
-    // 2) Nacrti (sve stranice svih PDF-ova s ucrtanim brojevima)
-    //    Tehnika: programatski prođemo kroz PDF-ove i stranice, postavimo state i uhvatimo "#pdf-capture-area"
+    // 2) Nacrti — snapshot svih stranica svih PDF-ova
     const snapshotNode = () => document.getElementById("pdf-capture-area");
     const wait = (ms) => new Promise((res) => setTimeout(res, ms));
 
     for (let i = 0; i < pdfs.length; i++) {
       setActivePdf(i);
-      // malo pričekati da se PDF zamijeni/renderira
-      await wait(120);
+      await wait(150);
 
-      const pages = pdfs[i].numPages || 1;
+      const pages = pdfs[i].numPages || numPages || 1; // fallback na trenutno stanje
       for (let p = 1; p <= pages; p++) {
         setPageNumber(p);
-        await wait(180); // pričekaj render (ovisno o uređaju možda povećati)
+        await wait(200); // ako treba, povećaj na 300–350ms na sporijim uređajima
 
         const node = snapshotNode();
         if (!node) continue;
@@ -582,7 +586,7 @@ export default function App() {
     const manifest = {
       rnName: activeRn,
       exportedAt: new Date().toISOString(),
-      pdfs: pdfs.map((p, i) => ({ index: i, name: p.name, numPages: p.numPages || 1 })),
+      pdfs: pdfs.map((p, i) => ({ index: i, name: p.name, numPages: p.numPages || null })),
       totals: { points: points.length, pdfs: pdfs.length },
       userInitials,
       version: 1,
@@ -594,6 +598,40 @@ export default function App() {
     const blob = await zip.generateAsync({ type: "blob" });
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     saveAs(blob, `ELABORAT-${activeRn}-${stamp}.zip`);
+  };
+
+  const doImportZip = async (file) => {
+    if (!file) return;
+    if (!activeRn) return window.alert("Odaberi ili kreiraj RN prije importa.");
+    try {
+      const current = { pdfs, activePdfIdx, pageNumber, points, seqCounter, rnName: activeRn, pageMap };
+      const backupZip = await exportRnToZip(current);
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      saveAs(await backupZip.generateAsync({ type: "blob" }), `BACKUP-${activeRn}-${stamp}.zip`);
+    } catch {}
+    try {
+      const imported = await importRnFromZip(file);
+      setPdfs(imported.pdfs || []);
+      setActivePdfIdx(imported.activePdfIdx || 0);
+      setPageNumber(imported.pageNumber || 1);
+      setPoints(imported.points || []);
+      setSeqCounter(imported.seqCounter || 0);
+      setPageMap(imported.pageMap || {});
+      const payload = {
+        rnName: activeRn,
+        pdfs: imported.pdfs || [],
+        activePdfIdx: imported.activePdfIdx || 0,
+        pageNumber: imported.pageNumber || 1,
+        pageMap: imported.pageMap || {},
+        points: imported.points || [],
+        seqCounter: imported.seqCounter || 0,
+      };
+      localStorage.setItem(STORAGE_PREFIX + activeRn, JSON.stringify(payload));
+      window.alert("Import završen.");
+    } catch (e) {
+      console.error(e);
+      window.alert("Greška pri importu ZIP-a.");
+    }
   };
 
   const onClickImportButton = () => {
@@ -678,7 +716,7 @@ export default function App() {
             boxShadow: "0 1px 4px rgba(0,0,0,0.4)",
             display: "flex", alignItems: "center", justifyContent: "center",
             fontSize: 11, fontWeight: 700, color: "#1a1a1a",
-            pointerEvents: "none", // marker ne hvata evente (hitbox hvata)
+            pointerEvents: "none",
           }}
           title={p.title || ""}
         >
@@ -879,16 +917,17 @@ export default function App() {
             }}
             onClick={handleViewerClick}
           >
-            {pdfs[activePdfIdx] ? (
+            {activePdfFile ? (
               <Document
-                file={{ data: new Uint8Array(pdfs[activePdfIdx].data) }}
+                file={activePdfFile}                 // ✅ stabilno, memoizirano
                 onLoadSuccess={onPdfLoadSuccess}
                 loading={<div style={{ padding: 16 }}>Učitavanje PDF-a…</div>}
+                error={<div style={{ padding: 16, color: "#f3b0b0" }}>Greška pri učitavanju PDF-a.</div>}
               >
                 <Page
                   pageNumber={pageNumber}
-                  renderTextLayer={false}        // ⛔ onemogući text layer (nema highlighta)
-                  renderAnnotationLayer={false}  // ⛔ onemogući annotation layer
+                  renderTextLayer={false}        // bez text layera
+                  renderAnnotationLayer={false}  // bez annotation layera
                   width={900}
                 />
               </Document>
@@ -896,7 +935,7 @@ export default function App() {
               <div style={{ padding: 24, color: "#c7d3d7" }}>Dodaj PDF datoteku za prikaz.</div>
             )}
 
-            {/* Overlay točke - pointer events uključeni i iznad PDF-a */}
+            {/* Overlay točke */}
             <div style={{ position: "absolute", inset: 0, pointerEvents: "auto", zIndex: 5 }}>
               {pointsOnCurrent.map(renderPoint)}
             </div>
@@ -912,7 +951,7 @@ export default function App() {
           )}
         </section>
 
-        {/* LISTA TOČAKA (sa kompaktnim prikazom) */}
+        {/* LISTA TOČAKA */}
         <section style={{ ...panel, marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <h3 style={{ margin: 0, fontSize: 14, color: "#c7d3d7" }}>Fotografije (lista)</h3>
