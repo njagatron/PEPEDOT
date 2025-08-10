@@ -59,6 +59,7 @@ export default function App() {
   const [pageMap, setPageMap] = useState({}); // per-PDF zadnja stranica
   const [numPages, setNumPages] = useState(1);
 
+  // Točke
   const [points, setPoints] = useState([]); // [{id,pdfIdx,page,x,y,title,dateISO,timeISO,note,imageData?}]
   const [seqCounter, setSeqCounter] = useState(0);
 
@@ -71,15 +72,21 @@ export default function App() {
   const [stagedPhoto, setStagedPhoto] = useState(null); // dataURL
   const [stagedNotice, setStagedNotice] = useState(false);
 
-  // Hover/touch oblačić
+  // Hover/touch oblačić — stabilizacija bez "stroba"
   const [hoverPointId, setHoverPointId] = useState(null);
-  const hideTipTimeout = useRef(null);
+  const hoverInT = useRef(null);
+  const hoverOutT = useRef(null);
 
   const viewerRef = useRef(null);
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
 
-  useEffect(() => () => clearTimeout(hideTipTimeout.current), []);
+  useEffect(() => {
+    return () => {
+      clearTimeout(hoverInT.current);
+      clearTimeout(hoverOutT.current);
+    };
+  }, []);
 
   // Helpers
   const safePersist = (key, value) => {
@@ -400,7 +407,7 @@ export default function App() {
     setModeInfoOnly(false);
   };
 
-  // EXCEL (ručni izvoz)
+  // EXCEL (ručni izvoz trenutne stranice)
   const exportExcel = () => {
     const list = pointsOnCurrent.map((p, i) => ({
       ID: i + 1,
@@ -507,56 +514,85 @@ export default function App() {
     </div>
   );
 
-  // Render jedne točke + tooltip (hover/touch) + broj
+  // RENDER TOČKE (stabilan hover/touch, veći hitbox, bez stroba)
   const renderPoint = (p) => {
     const isOpen = hoverPointId === p.id;
     const left = `${p.x * 100}%`;
     const top  = `${p.y * 100}%`;
     const ord  = getOrdinalForPoint(p);
 
-    const showTipTouch = () => {
-      clearTimeout(hideTipTimeout.current);
+    const onEnter = () => {
+      clearTimeout(hoverOutT.current);
+      hoverInT.current = setTimeout(() => setHoverPointId(p.id), 80);
+    };
+    const onLeave = () => {
+      clearTimeout(hoverInT.current);
+      hoverOutT.current = setTimeout(() => setHoverPointId(null), 120);
+    };
+    const onTouch = () => {
+      clearTimeout(hoverInT.current);
+      clearTimeout(hoverOutT.current);
       setHoverPointId(p.id);
-      hideTipTimeout.current = setTimeout(() => setHoverPointId(null), 1600);
+      setTimeout(() => setHoverPointId((cur) => (cur === p.id ? null : cur)), 1600);
     };
 
     return (
       <div
         key={p.id}
-        style={{ position: "absolute", left, top, transform: "translate(-50%, -50%)" }}
-        onMouseEnter={() => setHoverPointId(p.id)}
-        onMouseLeave={() => setHoverPointId(null)}
-        onTouchStart={showTipTouch}
-        onClick={(e) => e.stopPropagation()} // 🚫 klik/tap na točku ne dodaje novu točku
+        style={{
+          position: "absolute",
+          left, top,
+          transform: "translate(-50%, -50%)",
+          width: 36, height: 36,  // veći nevidljivi hitbox
+          zIndex: 6,
+        }}
+        onMouseEnter={onEnter}
+        onMouseLeave={onLeave}
+        onTouchStart={onTouch}
+        onClick={(e) => e.stopPropagation()} // ne dodaj novu točku kad klikneš točku
       >
-        {/* marker s brojem */}
+        {/* marker s brojem (centar hitboxa) */}
         <div
           style={{
-            width: 22, height: 22, borderRadius: "50%",
-            background: deco.gold, border: `2px solid ${deco.card}`,
+            position: "absolute",
+            left: "50%", top: "50%",
+            transform: "translate(-50%, -50%)",
+            width: 22, height: 22,
+            borderRadius: "50%",
+            background: deco.gold,
+            border: `2px solid ${deco.card}`,
             boxShadow: "0 1px 4px rgba(0,0,0,0.4)",
             display: "flex", alignItems: "center", justifyContent: "center",
             fontSize: 11, fontWeight: 700, color: "#1a1a1a",
+            pointerEvents: "none", // marker ne hvata evente (hitbox hvata)
           }}
           title={p.title || ""}
         >
           {ord}
         </div>
 
-        {/* tooltip: Naziv + Datum + Vrijeme */}
+        {/* tooltip (bez pointer eventa => ne prekida hover) */}
         {isOpen && (
           <div
             style={{
-              position: "absolute", bottom: "120%", left: "50%", transform: "translateX(-50%)",
-              background: "rgba(0,0,0,0.9)", color: "#fff",
-              padding: "6px 8px", borderRadius: 8, whiteSpace: "nowrap",
-              fontSize: 12, pointerEvents: "none",
+              position: "absolute",
+              left: "50%", bottom: "120%",
+              transform: "translateX(-50%)",
+              background: "rgba(0,0,0,0.9)",
+              color: "#fff",
+              padding: "6px 8px",
+              borderRadius: 8,
+              whiteSpace: "nowrap",
+              fontSize: 12,
+              pointerEvents: "none",
+              zIndex: 7,
             }}
           >
             <div><strong>{p.title || "(bez naziva)"}</strong></div>
             <div style={{ opacity: 0.9 }}>
               Datum: {p.dateISO || "(n/a)"} · Vrijeme: {p.timeISO || "(n/a)"}
             </div>
+            {!!p.note && <div style={{ opacity: 0.9 }}>{p.note}</div>}
           </div>
         )}
       </div>
@@ -703,8 +739,8 @@ export default function App() {
               >
                 <Page
                   pageNumber={pageNumber}
-                  renderTextLayer={false}        // ⛔️ onemogući text layer (nema highlighta)
-                  renderAnnotationLayer={false}  // ⛔️ onemogući annotation layer
+                  renderTextLayer={false}        // ⛔ onemogući text layer (nema highlighta)
+                  renderAnnotationLayer={false}  // ⛔ onemogući annotation layer
                   width={900}
                 />
               </Document>
@@ -712,8 +748,8 @@ export default function App() {
               <div style={{ padding: 24, color: "#c7d3d7" }}>Dodaj PDF datoteku za prikaz.</div>
             )}
 
-            {/* Overlay točke - pointer events uključeni */}
-            <div style={{ position: "absolute", inset: 0, pointerEvents: "auto" }}>
+            {/* Overlay točke - pointer events uključeni i iznad PDF-a */}
+            <div style={{ position: "absolute", inset: 0, pointerEvents: "auto", zIndex: 5 }}>
               {pointsOnCurrent.map(renderPoint)}
             </div>
           </div>
