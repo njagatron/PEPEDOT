@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import * as XLSX from "xlsx";
 
 function dataURLToUint8(dataURL) {
   const [meta, b64] = dataURL.split(",");
@@ -8,46 +9,72 @@ function dataURLToUint8(dataURL) {
   return bytes;
 }
 
+// Excel builder – po zadanom: SVE točke iz RN-a.
+// Ako želiš samo za aktivni PDF/stranicu, filtriraj prije poziva.
+function buildExcelAll(points, pdfs) {
+  const list = points.map((p, i) => ({
+    ID: i + 1,
+    Naziv: p.title || "",
+    Datum: p.dateISO || "",
+    Komentar: p.note || "",
+    PDF: pdfs[p.pdfIdx]?.name || "",
+    Stranica: p.page,
+    X: p.x,
+    Y: p.y,
+  }));
+  const ws = XLSX.utils.json_to_sheet(list);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Tocke");
+  // Vrati ArrayBuffer za ZIP
+  return XLSX.write(wb, { bookType: "xlsx", type: "array" });
+}
+
 export async function exportRnToZip(state) {
-  const { rnName, pdfs, activePdfIdx, pageNumber, points, seqCounter } = state;
+  const { rnName, pdfs, activePdfIdx, pageNumber, points, seqCounter, pageMap } = state;
   const zip = new JSZip();
 
-  const pdfArr = [];
-  for (let i = 0; i < (pdfs || []).length; i++) {
+  // rn.json
+  const rnJson = {
+    rnName: rnName || "",
+    activePdfIdx: activePdfIdx || 0,
+    pageNumber: pageNumber || 1,
+    seqCounter: seqCounter || 0,
+    pageMap: pageMap || {},
+    pdfs: [],
+    points: [],
+  };
+
+  // PDF-ovi u /pdfs i rn.json.pdfs (samo meta)
+  for (let i = 0; i < pdfs.length; i++) {
     const p = pdfs[i];
-    const name = p.name || `tlocrt_${i + 1}.pdf`;
-    const u8 = new Uint8Array(p.data || []);
-    zip.file(`pdf/${name}`, u8);
-    pdfArr.push({ name, dataPath: `pdf/${name}` });
+    const filename = `pdfs/${i}-${(p.name || `tlocrt-${i + 1}.pdf`).replace(/\s+/g, "_")}`;
+    zip.file(filename, new Uint8Array(p.data));
+    rnJson.pdfs.push({ id: p.id, name: p.name || "", path: filename, numPages: p.numPages || 1 });
   }
 
-  const pointsForJson = [];
-  for (const pt of points || []) {
+  // Slike (ako postoje) u /images i rn.json.points
+  for (let i = 0; i < points.length; i++) {
+    const pt = points[i];
     let imagePath = null;
-    if (pt.imageData && pt.imageData.startsWith("data:image/")) {
-      const fname = `images/pt_${pt.seq}.jpg`;
-      zip.file(fname, dataURLToUint8(pt.imageData));
-      imagePath = fname;
+    if (pt.imageData) {
+      const bytes = dataURLToUint8(pt.imageData);
+      imagePath = `images/pt-${i}.jpg`;
+      zip.file(imagePath, bytes);
     }
     const { imageData, ...rest } = pt;
-    pointsForJson.push({ ...rest, imagePath });
+    rnJson.points.push({ ...rest, imagePath });
   }
 
-  zip.file(
-    "rn.json",
-    JSON.stringify(
-      {
-        rnName: rnName || "",
-        activePdfIdx: activePdfIdx || 0,
-        pageNumber: pageNumber || 1,
-        seqCounter: seqCounter || 0,
-        pdfs: pdfArr,
-        points: pointsForJson,
-      },
-      null,
-      2
-    )
-  );
+  // Snimi rn.json
+  zip.file("rn.json", JSON.stringify(rnJson, null, 2));
+
+  // DODANO: Excel (sve točke)
+  try {
+    const excelArray = buildExcelAll(points, pdfs);
+    zip.file("tocke.xlsx", excelArray);
+  } catch (e) {
+    console.warn("Excel export u ZIP nije uspio:", e);
+  }
 
   return zip;
 }
