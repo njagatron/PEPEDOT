@@ -142,7 +142,6 @@ export default function App() {
 
   useEffect(() => {
     persistActiveRn();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRn, pdfs, activePdfIdx, pageNumber, points, seqCounter, pageMap]);
 
   // RN akcije
