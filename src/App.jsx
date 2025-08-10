@@ -77,6 +77,10 @@ export default function App() {
   const hoverInT = useRef(null);
   const hoverOutT = useRef(null);
 
+  // Edit fotke postojeće točke
+  const [photoEditTargetId, setPhotoEditTargetId] = useState(null);
+  const editPhotoInputRef = useRef(null);
+
   const viewerRef = useRef(null);
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
@@ -305,7 +309,7 @@ export default function App() {
 
   const nowParts = () => {
     const d = new Date();
-    const dateISO = d.toISOString().slice(0, 10);
+    aconst dateISO = d.toISOString().slice(0, 10);
     const timeISO = d.toTimeString().slice(0, 8); // HH:MM:SS
     return { dateISO, timeISO };
   };
@@ -405,6 +409,29 @@ export default function App() {
     setStagedPhoto(dataURL);
     setStagedNotice(true);
     setModeInfoOnly(false);
+  };
+
+  // EDIT FOTKE NA POSTOJEĆOJ TOČKI
+  const startEditPhoto = (pointId) => {
+    setPhotoEditTargetId(pointId);
+    editPhotoInputRef.current?.click();
+  };
+
+  const onEditPhotoSelected = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !photoEditTargetId) return;
+
+    const dataURL = await readFileAsDataURL(file);
+    setPoints((prev) =>
+      prev.map((p) => (p.id === photoEditTargetId ? { ...p, imageData: dataURL } : p))
+    );
+    setPhotoEditTargetId(null);
+  };
+
+  const removePhotoFromPoint = (pointId) => {
+    if (!window.confirm("Ukloniti fotku s ove točke?")) return;
+    setPoints((prev) => prev.map((p) => (p.id === pointId ? { ...p, imageData: null } : p)));
   };
 
   // EXCEL (ručni izvoz trenutne stranice)
@@ -571,30 +598,32 @@ export default function App() {
           {ord}
         </div>
 
-        {/* tooltip (bez pointer eventa => ne prekida hover) */}
-        {isOpen && (
-          <div
-            style={{
-              position: "absolute",
-              left: "50%", bottom: "120%",
-              transform: "translateX(-50%)",
-              background: "rgba(0,0,0,0.9)",
-              color: "#fff",
-              padding: "6px 8px",
-              borderRadius: 8,
-              whiteSpace: "nowrap",
-              fontSize: 12,
-              pointerEvents: "none",
-              zIndex: 7,
-            }}
-          >
-            <div><strong>{p.title || "(bez naziva)"}</strong></div>
-            <div style={{ opacity: 0.9 }}>
-              Datum: {p.dateISO || "(n/a)"} · Vrijeme: {p.timeISO || "(n/a)"}
-            </div>
-            {!!p.note && <div style={{ opacity: 0.9 }}>{p.note}</div>}
+        {/* Tooltip: uvijek u DOM-u, samo mijenjamo opacity/visibility (nema blica) */}
+        <div
+          style={{
+            position: "absolute",
+            left: "50%", bottom: "120%",
+            transform: "translateX(-50%)",
+            background: "rgba(0,0,0,0.9)",
+            color: "#fff",
+            padding: "6px 8px",
+            borderRadius: 8,
+            whiteSpace: "nowrap",
+            fontSize: 12,
+            pointerEvents: "none",
+            zIndex: 7,
+            opacity: isOpen ? 1 : 0,
+            visibility: isOpen ? "visible" : "hidden",
+            transition: "opacity 120ms ease, visibility 120ms ease",
+            willChange: "opacity",
+          }}
+        >
+          <div><strong>{p.title || "(bez naziva)"}</strong></div>
+          <div style={{ opacity: 0.9 }}>
+            Datum: {p.dateISO || "(n/a)"} · Vrijeme: {p.timeISO || "(n/a)"}
           </div>
-        )}
+          {!!p.note && <div style={{ opacity: 0.9 }}>{p.note}</div>}
+        </div>
       </div>
     );
   };
@@ -694,6 +723,15 @@ export default function App() {
               type="file"
               accept="image/*"
               onChange={onGallerySelected}
+              style={{ display: "none" }}
+            />
+
+            {/* SKRIVENI INPUT ZA PROMJENU FOTKE NA POSTOJEĆOJ TOČKI */}
+            <input
+              ref={editPhotoInputRef}
+              type="file"
+              accept="image/*"
+              onChange={onEditPhotoSelected}
               style={{ display: "none" }}
             />
 
@@ -828,6 +866,25 @@ export default function App() {
                     </div>
 
                     <div style={{ display: "flex", gap: compactList ? 6 : 8 }}>
+                      {/* Dodaj/promijeni fotku na postojeću točku */}
+                      <button
+                        style={{ ...btn.base, padding: compactList ? "4px 8px" : "8px 12px", fontSize: compactList ? 12 : 14 }}
+                        onClick={() => startEditPhoto(p.id)}
+                      >
+                        {hasPhoto ? "Promijeni fotku" : "Dodaj fotku"}
+                      </button>
+
+                      {/* Ukloni fotku (ako postoji) */}
+                      {hasPhoto && (
+                        <button
+                          style={{ ...btn.base, ...btn.warn, padding: compactList ? "4px 8px" : "8px 12px", fontSize: compactList ? 12 : 14 }}
+                          onClick={() => removePhotoFromPoint(p.id)}
+                        >
+                          Ukloni fotku
+                        </button>
+                      )}
+
+                      {/* Download postojeće fotke */}
                       {hasPhoto && (
                         <a
                           href={p.imageData}
@@ -837,6 +894,8 @@ export default function App() {
                           ⬇️
                         </a>
                       )}
+
+                      {/* Uredi/Obriši točku */}
                       <button style={{ ...btn.base, ...btn.warn, padding: compactList ? "4px 8px" : "8px 12px", fontSize: compactList ? 12 : 14 }}
                               onClick={() => editPoint(globalIdx)}>Uredi</button>
                       <button style={{ ...btn.base, ...btn.danger, padding: compactList ? "4px 8px" : "8px 12px", fontSize: compactList ? 12 : 14 }}
