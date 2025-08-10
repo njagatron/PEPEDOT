@@ -9,12 +9,14 @@ import { exportRnToZip } from "./exportRn";
 import { importRnFromZip } from "./importRn";
 import "react-pdf/dist/esm/Page/AnnotationLayer.css";
 import "react-pdf/dist/esm/Page/TextLayer.css";
+import "./responsive.css"; // ➜ lagani responsive stilovi (vidi file ispod)
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
 export default function App() {
   const STORAGE_PREFIX = "pepedot2_rn_";
   const MAX_PDFS = 10;
+  const MAX_RN = 10;
 
   // Tema/UI
   const deco = {
@@ -34,8 +36,8 @@ export default function App() {
   };
   const btn = {
     base: {
-      padding: "8px 12px",
-      borderRadius: 10,
+      padding: "10px 14px",
+      borderRadius: 12,
       border: `1px solid ${deco.edge}`,
       background: "#0f2328",
       color: deco.ink,
@@ -46,6 +48,7 @@ export default function App() {
     warn: { background: "#d99114", borderColor: "#d99114", color: "#fff" },
     danger: { background: "#a62c2b", borderColor: "#a62c2b", color: "#fff" },
     ghost: { background: "transparent" },
+    large: { padding: "12px 18px", borderRadius: 14, fontWeight: 600 },
   };
 
   // RN / spremanje
@@ -67,6 +70,7 @@ export default function App() {
   // Lista/UX
   const [showAllSessions, setShowAllSessions] = useState(false);
   const [compactList, setCompactList] = useState(false);
+  const [showPreview, setShowPreview] = useState(true); // ➜ možeš isključiti pregled sličica
 
   // Korisnik – inicijali
   const [userInitials, setUserInitials] = useState(() => localStorage.getItem("pepedot2_user_initials") || "");
@@ -84,10 +88,26 @@ export default function App() {
   const [photoEditTargetId, setPhotoEditTargetId] = useState(null);
   const editPhotoInputRef = useRef(null);
 
+  // Export dropdown
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportBtnRef = useRef(null);
+
   // Refs
-  const captureRef = useRef(null); // cijela “capture” površina (wrapper PDF-a)
+  const captureRef = useRef(null); // površina klikabilna = točno preko PDF-a
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
+
+  // Klik izvan export dropdowna zatvara ga
+  useEffect(() => {
+    const onDocClick = (e) => {
+      if (!exportBtnRef.current) return;
+      if (!exportBtnRef.current.parentElement.contains(e.target)) {
+        setExportOpen(false);
+      }
+    };
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -144,14 +164,11 @@ export default function App() {
         return;
       }
       const obj = JSON.parse(raw);
-
-      // sanitize (klamp x/y)
       const sanitizedPoints = (obj.points || []).map((p) => ({
         ...p,
         x: clamp01(p.x ?? 0),
         y: clamp01(p.y ?? 0),
       }));
-
       setPdfs(obj.pdfs || []);
       setActivePdfIdx(obj.activePdfIdx || 0);
       setPageNumber(obj.pageNumber || 1);
@@ -178,6 +195,10 @@ export default function App() {
 
   // RN akcije
   const createRn = () => {
+    if (rnList.length >= MAX_RN) {
+      window.alert(`Dosegnut je maksimalan broj RN-ova (${MAX_RN}).`);
+      return;
+    }
     const name = window.prompt("Naziv novog RN-a:");
     if (!name) return;
     if (rnList.includes(name)) return window.alert("RN s tim nazivom već postoji.");
@@ -187,6 +208,17 @@ export default function App() {
     setActiveRn(name);
     setPdfs([]); setActivePdfIdx(0); setPageNumber(1);
     setPoints([]); setSeqCounter(0); setPageMap({});
+
+    // traži inicijale odmah
+    setTimeout(() => {
+      let initials = localStorage.getItem("pepedot2_user_initials") || "";
+      if (!initials) {
+        initials = window.prompt("Unesite svoje inicijale (npr. JN):", "") || "";
+        initials = initials.toUpperCase();
+        setUserInitials(initials);
+        localStorage.setItem("pepedot2_user_initials", initials);
+      }
+    }, 0);
   };
 
   const renameRn = (oldName) => {
@@ -204,6 +236,13 @@ export default function App() {
     setRnList(updated);
     safePersist("pepedot2_rn_list", JSON.stringify(updated));
     if (activeRn === oldName) setActiveRn(newName);
+  };
+
+  const changeInitialsForUser = () => {
+    const cur = localStorage.getItem("pepedot2_user_initials") || userInitials || "";
+    const next = (window.prompt("Unesite nove inicijale (npr. JN):", cur) || "").toUpperCase();
+    setUserInitials(next);
+    localStorage.setItem("pepedot2_user_initials", next);
   };
 
   const deleteRnWithConfirm = (rnName) => {
@@ -237,13 +276,6 @@ export default function App() {
     setPageMap((prev) => ({ ...prev, [activePdfIdx]: pageNumber }));
   }, [activePdfIdx, pageNumber]);
 
-  const handlePdfUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    await addPdf(file);
-    e.target.value = "";
-  };
-
   const addPdf = async (file) => {
     if (pdfs.length >= MAX_PDFS) {
       return window.alert(`Dosegnut je maksimalan broj PDF-ova (${MAX_PDFS}) za ovaj RN.`);
@@ -263,6 +295,19 @@ export default function App() {
       console.error(e);
       window.alert("Neuspješno dodavanje PDF-a.");
     }
+  };
+
+  const handlePdfPicker = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".pdf,application/pdf";
+    input.onchange = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      await addPdf(file);
+      input.value = "";
+    };
+    input.click();
   };
 
   const renamePdf = (idx) => {
@@ -332,10 +377,7 @@ export default function App() {
     const x = (e.clientX - rect.left) / rect.width;
     const y = (e.clientY - rect.top) / rect.height;
 
-    // Ako klik nije u [0,1]×[0,1] → ignoriraj (izvan PDF-a)
-    if (x < 0 || x > 1 || y < 0 || y > 1) return;
-
-    // Sigurnosna mreža – klampaj
+    if (x < 0 || x > 1 || y < 0 || y > 1) return; // izvan PDF-a
     const xx = clamp01(x);
     const yy = clamp01(y);
 
@@ -421,7 +463,7 @@ export default function App() {
     setPoints((prev) => prev.filter((_, i) => i !== globalIdx));
   };
 
-  // DODAVANJE FOTOGRAFIJA (kamera/galerija)
+  // FOTO (kamera/galerija)
   const onPickCamera = () => cameraInputRef.current?.click();
   const onPickGallery = () => galleryInputRef.current?.click();
 
@@ -711,22 +753,38 @@ export default function App() {
     input.click();
   };
 
-  // RN selektor — sada uz svaki RN: Preimenuj/Obriši
+  // RN selektor — RN tipke + ⋯ meni + “+”
   const RnPicker = () => (
-    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+    <div className="rn-row">
       {rnList.map((rn) => (
-        <div key={rn} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <div key={rn} className="rn-chip">
           <button
-            style={{ ...btn.base, ...(activeRn === rn ? btn.primary : {}) }}
+            className={`rn-btn ${activeRn === rn ? "is-active" : ""}`}
             onClick={() => { setActiveRn(rn); loadActiveRn(rn); }}
             title={`Otvori RN "${rn}"`}
           >
             {rn}
           </button>
-          <button style={{ ...btn.base }} title="Preimenuj RN" onClick={() => renameRn(rn)}>📝</button>
-          <button style={{ ...btn.base, ...btn.danger }} title="Obriši RN" onClick={() => deleteRnWithConfirm(rn)}>🗑️</button>
+
+          <details className="menu">
+            <summary title="Akcije">⋯</summary>
+            <div className="menu-items">
+              <button onClick={() => renameRn(rn)}>📝 Preimenuj</button>
+              <button onClick={() => changeInitialsForUser()}>🧾 Promijeni inicijale</button>
+              <button className="danger" onClick={() => deleteRnWithConfirm(rn)}>🗑️ Obriši</button>
+            </div>
+          </details>
         </div>
       ))}
+
+      <button
+        className="rn-add"
+        onClick={createRn}
+        title={rnList.length >= MAX_RN ? `Maksimum ${MAX_RN} RN` : "Dodaj novi RN"}
+        disabled={rnList.length >= MAX_RN}
+      >
+        +
+      </button>
     </div>
   );
 
@@ -819,42 +877,48 @@ export default function App() {
     <div style={{ minHeight: "100vh", background: deco.bg, color: deco.ink, fontFamily: "Inter,system-ui,Arial,sans-serif" }}>
       <div style={{ maxWidth: 1180, margin: "0 auto", padding: 16 }}>
         {/* HEADER */}
-        <header style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-          <h1 style={{ margin: 0, fontSize: 18, flex: 1 }}>PEPEDOT 2</h1>
+        <header className="header">
+          <h1 className="app-title">PEPEDOT 2</h1>
 
-          {/* Inicijali (mogu se promijeniti) */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <label htmlFor="inicijali" style={{ fontSize: 12, opacity: 0.85 }}>Inicijali:</label>
-            <input
-              id="inicijali"
-              value={userInitials}
-              onChange={(e) => {
-                const val = (e.target.value || "").toUpperCase();
-                setUserInitials(val);
-                localStorage.setItem("pepedot2_user_initials", val);
-              }}
-              placeholder="npr. JN"
-              style={{
-                padding: "6px 8px", width: 84, borderRadius: 8, border: `1px solid ${deco.edge}`,
-                background: "#0f2328", color: deco.ink,
-              }}
-            />
+          <div className="header-actions">
+            <button
+              className="btn big"
+              onClick={handlePdfPicker}
+              disabled={!activeRn || pdfs.length >= MAX_PDFS}
+              title={!activeRn ? "Najprije odaberi ili kreiraj RN" : (pdfs.length >= MAX_PDFS ? `Maksimum ${MAX_PDFS} PDF-ova` : "Dodaj PDF")}
+            >
+              📄 Dodaj PDF
+            </button>
+
+            <div className="export-wrap">
+              <button
+                ref={exportBtnRef}
+                className="btn big"
+                onClick={() => setExportOpen((v) => !v)}
+                disabled={!activeRn}
+                title={!activeRn ? "Najprije odaberi ili kreiraj RN" : "Izvoz"}
+              >
+                ⬇️ Export
+              </button>
+              {exportOpen && (
+                <div className="export-menu">
+                  <button onClick={() => { setExportOpen(false); exportExcel(); }}>Export Excel (trenutna stranica)</button>
+                  <button onClick={() => { setExportOpen(false); exportPDF(); }}>Export PDF (trenutna stranica)</button>
+                  <button onClick={() => { setExportOpen(false); doExportZip(); }}>Export RN (.zip)</button>
+                  <button onClick={() => { setExportOpen(false); exportElaborat(); }}>Export ELABORAT (.zip)</button>
+                  <hr />
+                  <button onClick={() => { setExportOpen(false); onClickImportButton(); }}>📂 Import RN (.zip)</button>
+                </div>
+              )}
+            </div>
+
+            <button className="btn" onClick={onPickCamera} disabled={!activeRn}>📷 Kamera</button>
+            <button className="btn" onClick={onPickGallery} disabled={!activeRn}>🖼️ Galerija</button>
+
+            <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={onCameraSelected} style={{ display: "none" }} />
+            <input ref={galleryInputRef} type="file" accept="image/*" onChange={onGallerySelected} style={{ display: "none" }} />
+            <input ref={editPhotoInputRef} type="file" accept="image/*" onChange={onEditPhotoSelected} style={{ display: "none" }} />
           </div>
-
-          <button style={{ ...btn.base, ...btn.primary }} onClick={createRn}>Novi RN</button>
-
-          <input
-            type="file"
-            accept=".pdf,application/pdf"
-            onChange={handlePdfUpload}
-            disabled={!activeRn || pdfs.length >= MAX_PDFS}
-            style={{
-              padding: 6, background: "#0f2328", border: `1px solid ${deco.edge}`, borderRadius: 10,
-              color: (!activeRn || pdfs.length >= MAX_PDFS) ? "#7b8a8f" : deco.ink,
-              opacity: (!activeRn || pdfs.length >= MAX_PDFS) ? 0.6 : 1,
-              cursor: (!activeRn || pdfs.length >= MAX_PDFS) ? "not-allowed" : "pointer",
-            }}
-          />
         </header>
 
         {persistWarning && (
@@ -863,91 +927,55 @@ export default function App() {
           </div>
         )}
 
-        {/* RN lista (sada uključuje 📝/🗑️) */}
+        {/* RN lista (s ⋯ i “+”) */}
         <section style={{ ...panel, marginBottom: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <h3 style={{ margin: 0, fontSize: 14, color: "#c7d3d7" }}>Radni nalozi</h3>
-          </div>
+          <div className="section-title">Radni nalozi</div>
           <RnPicker />
         </section>
 
-        {/* PDF TABOVI (sada imaju 📝 i 🗑️ uz naziv) */}
+        {/* PDF TABOVI (s ⋯ akcijama uz svaki) */}
         {!!pdfs.length && (
           <section style={{ ...panel, marginBottom: 12 }}>
-            <div style={{
-              display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center",
-              padding: 8, background: "#0f2328", border: `1px solid ${deco.edge}`,
-              borderRadius: 12, overflowX: "auto",
-            }}>
+            <div className="pdf-tabs">
               {pdfs.map((p, i) => (
-                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div key={p.id} className="pdf-chip">
                   <button
                     onClick={() => setActivePdf(i)}
                     title={p.name || `PDF ${i + 1}`}
-                    style={{
-                      padding: "6px 10px", borderRadius: 10, border: `1px solid ${deco.edge}`,
-                      background: i === activePdfIdx ? deco.accent : "#132b31",
-                      color: i === activePdfIdx ? "#fff" : deco.ink,
-                      whiteSpace: "nowrap", cursor: "pointer",
-                    }}
+                    className={`pdf-btn ${i === activePdfIdx ? "is-active" : ""}`}
                   >
                     {p.name || `PDF ${i + 1}`}
                   </button>
-                  <button style={{ ...btn.base }} title="Preimenuj PDF" onClick={() => renamePdf(i)}>📝</button>
-                  <button style={{ ...btn.base, ...btn.danger }} title="Obriši PDF" onClick={() => deletePdfWithConfirm(i)}>🗑️</button>
+                  <details className="menu">
+                    <summary title="Akcije">⋯</summary>
+                    <div className="menu-items">
+                      <button onClick={() => renamePdf(i)}>📝 Preimenuj</button>
+                      <button className="danger" onClick={() => deletePdfWithConfirm(i)}>🗑️ Obriši</button>
+                    </div>
+                  </details>
                 </div>
               ))}
-              <span style={{ marginLeft: "auto", fontSize: 12, color: "#c7d3d7" }}>
-                {pdfs.length}/{MAX_PDFS}
-              </span>
+              <span className="pdf-count">{pdfs.length}/{MAX_PDFS}</span>
             </div>
           </section>
         )}
 
         {/* VIEWER + KONTROLE */}
         <section style={{ ...panel, marginBottom: 12 }}>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
-            <div style={{ fontSize: 12, color: "#c7d3d7" }}>
+          <div className="bar">
+            <div className="muted">
               Aktivni PDF: <strong style={{ color: deco.gold }}>{pdfs[activePdfIdx]?.name || "(nema)"}</strong>
             </div>
-            <div style={{ flex: 1 }} />
-
-            {/* FOTO TIPKE */}
-            <button style={{ ...btn.base }} onClick={onPickCamera} disabled={!activeRn}>📷 Kamera</button>
-            <button style={{ ...btn.base }} onClick={onPickGallery} disabled={!activeRn}>🖼️ Galerija</button>
-            <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={onCameraSelected} style={{ display: "none" }} />
-            <input ref={galleryInputRef} type="file" accept="image/*" onChange={onGallerySelected} style={{ display: "none" }} />
-
-            {/* SKRIVENI INPUT ZA PROMJENU FOTKE */}
-            <input ref={editPhotoInputRef} type="file" accept="image/*" onChange={onEditPhotoSelected} style={{ display: "none" }} />
-
-            <button style={{ ...btn.base }} onClick={exportExcel}>Izvoz Excel</button>
-            <button style={{ ...btn.base, ...btn.gold }} onClick={exportPDF}>Izvoz PDF (trenutna stranica)</button>
-            <button style={{ ...btn.base }} onClick={doExportZip}>💾 Export RN (.zip)</button>
-            <button style={{ ...btn.base }} onClick={onClickImportButton}>📂 Import RN (.zip)</button>
-            <button style={{ ...btn.base, ...btn.primary }} onClick={exportElaborat} disabled={!pdfs.length}>📦 Export ELABORAT</button>
+            <div className="spacer" />
+            {stagedNotice && stagedPhoto && (
+              <div className="hint success">Fotografija je učitana. Tapni/klikni na nacrt gdje želiš točku.</div>
+            )}
           </div>
 
-          {stagedNotice && stagedPhoto && (
-            <div style={{ marginBottom: 8, padding: 8, borderRadius: 10, background: "#10321f", border: "1px solid #1d6b3a", color: "#bfe9c8" }}>
-              Fotografija je učitana. Klikni na nacrt kako bi postavio točku s pridruženom fotografijom.
-            </div>
-          )}
-
-          {/* PDF + Overlay – captureRef je točno koliko i PDF površina, klik izvan ignoriramo */}
+          {/* PDF + Overlay – captureRef je točno preko PDF canvasa */}
           <div
             id="pdf-capture-area"
-            style={{
-              position: "relative",
-              background: "#0a1a1f",
-              border: `1px solid ${deco.edge}`,
-              borderRadius: 12,
-              overflow: "hidden",
-              display: "flex",
-              justifyContent: "center",
-              alignItems: "center",
-              minHeight: 420,
-            }}
+            className="pdf-wrap"
           >
             {activePdfFile ? (
               <div
@@ -961,10 +989,16 @@ export default function App() {
                   loading={<div style={{ padding: 16 }}>Učitavanje PDF-a…</div>}
                   error={<div style={{ padding: 16, color: "#f3b0b0" }}>Greška pri učitavanju PDF-a.</div>}
                 >
-                  <Page pageNumber={pageNumber} renderTextLayer={false} renderAnnotationLayer={false} width={900} />
+                  {/* Dinamička širina: ograničena kroz CSS .pdf-page */}
+                  <Page
+                    className="pdf-page"
+                    pageNumber={pageNumber}
+                    renderTextLayer={false}
+                    renderAnnotationLayer={false}
+                  />
                 </Document>
 
-                {/* Overlay točke – sada točno preko PDF canvasa */}
+                {/* Overlay točke */}
                 <div style={{ position: "absolute", inset: 0, pointerEvents: "auto", zIndex: 5 }}>
                   {pointsOnCurrent.map(renderPoint)}
                 </div>
@@ -975,97 +1009,81 @@ export default function App() {
           </div>
 
           {!!pdfs.length && (
-            <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
-              <button style={{ ...btn.base }} onClick={() => setPageNumber((n) => Math.max(1, n - 1))} disabled={pageNumber <= 1}>◀︎</button>
-              <div style={{ fontSize: 12, color: "#c7d3d7" }}>Stranica {pageNumber} / {numPages}</div>
-              <button style={{ ...btn.base }} onClick={() => setPageNumber((n) => Math.min(numPages, n + 1))} disabled={pageNumber >= numPages}>▶︎</button>
+            <div className="pager">
+              <button className="btn" onClick={() => setPageNumber((n) => Math.max(1, n - 1))} disabled={pageNumber <= 1}>◀︎</button>
+              <div className="muted">Stranica {pageNumber} / {numPages}</div>
+              <button className="btn" onClick={() => setPageNumber((n) => Math.min(numPages, n + 1))} disabled={pageNumber >= numPages}>▶︎</button>
             </div>
           )}
         </section>
 
         {/* LISTA TOČAKA */}
         <section style={{ ...panel, marginBottom: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <h3 style={{ margin: 0, fontSize: 14, color: "#c7d3d7" }}>Fotografije (lista)</h3>
-            <div style={{ flex: 1 }} />
-            <button style={{ ...btn.base }} onClick={() => setShowAllSessions(s => !s)}>
+          <div className="bar">
+            <div className="section-title">Fotografije (lista)</div>
+            <div className="spacer" />
+            <button className="btn" onClick={() => setShowAllSessions(s => !s)}>
               {showAllSessions ? "Prikaži samo novu sesiju" : "Prikaži sve sesije"}
             </button>
-            <button style={{ ...btn.base }} onClick={() => setCompactList(s => !s)}>
+            <button className="btn" onClick={() => setCompactList(s => !s)}>
               {compactList ? "Prikaz: detaljno" : "📱 Kompaktna lista"}
+            </button>
+            <button className="btn" onClick={() => setShowPreview(s => !s)}>
+              {showPreview ? "Sakrij preview" : "Prikaži preview"}
             </button>
           </div>
 
-          <div style={{ display: "grid", gap: compactList ? 6 : 8 }}>
+          <div className={`list ${compactList ? "list-compact" : ""}`}>
             {points
               .filter((p) => showAllSessions ? true : (p.pdfIdx === activePdfIdx && p.page === pageNumber))
               .map((p, globalIdx) => {
                 const hasPhoto = !!p.imageData;
                 const ord = getOrdinalForPoint(p);
                 return (
-                  <div
-                    key={p.id}
-                    style={{
-                      border: `1px solid ${deco.edge}`,
-                      borderRadius: 12,
-                      background: "#0f2328",
-                      padding: compactList ? 6 : 10,
-                      display: "flex",
-                      gap: compactList ? 6 : 10,
-                      alignItems: "center",
-                    }}
-                  >
-                    <div style={{
-                      width: compactList ? 32 : 48,
-                      height: compactList ? 32 : 48,
-                      borderRadius: 8,
-                      overflow: "hidden",
-                      background: "#09161a",
-                      display: "flex", alignItems: "center", justifyContent: "center"
-                    }}>
-                      {hasPhoto ? (
-                        <img src={p.imageData} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  <div key={p.id} className="card">
+                    {/* Preview (opcionalno) */}
+                    <div className="thumb">
+                      {showPreview ? (
+                        hasPhoto ? (
+                          <img src={p.imageData} alt="" />
+                        ) : (
+                          <span className="noimg">{compactList ? "—" : "bez slike"}</span>
+                        )
                       ) : (
-                        <span style={{ fontSize: 11, color: "#7b8a8f" }}>
-                          {compactList ? "—" : "bez slike"}
-                        </span>
+                        <span className="noimg">•</span>
                       )}
                     </div>
 
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, color: deco.ink, fontSize: compactList ? 12 : 14 }}>
+                    <div className="meta">
+                      <div className="title">
                         {ord != null ? `${ord}. ` : ""}{p.title || "(bez naziva)"}{p.authorInitials ? ` — ${p.authorInitials}` : ""}
                       </div>
-                      <div style={{ fontSize: 12, opacity: 0.9 }}>
+                      <div className="sub">
                         Datum: {p.dateISO || "(n/a)"} · Vrijeme: {p.timeISO || "(n/a)"} · PDF: {pdfs[p.pdfIdx]?.name || "?"} · str: {p.page}
                       </div>
                       {!compactList && !!p.note && (
-                        <div style={{ fontSize: 12, opacity: 0.9, marginTop: 4 }}>
-                          Komentar: {p.note}
-                        </div>
+                        <div className="note">Komentar: {p.note}</div>
                       )}
                     </div>
 
-                    <div style={{ display: "flex", gap: compactList ? 6 : 8 }}>
-                      <button style={{ ...btn.base, padding: compactList ? "4px 8px" : "8px 12px", fontSize: compactList ? 12 : 14 }}
-                              onClick={() => startEditPhoto(p.id)}>{hasPhoto ? "Promijeni fotku" : "Dodaj fotku"}</button>
+                    <div className="actions">
+                      <button className="btn" onClick={() => startEditPhoto(p.id)}>
+                        {hasPhoto ? "Promijeni fotku" : "Dodaj fotku"}
+                      </button>
                       {hasPhoto && (
-                        <button style={{ ...btn.base, ...btn.warn, padding: compactList ? "4px 8px" : "8px 12px", fontSize: compactList ? 12 : 14 }}
-                                onClick={() => removePhotoFromPoint(p.id)}>Ukloni fotku</button>
+                        <>
+                          <button className="btn warn" onClick={() => removePhotoFromPoint(p.id)}>Ukloni fotku</button>
+                          <a
+                            className="btn ghost"
+                            href={p.imageData}
+                            download={`${(ord ?? 0)}_${p.title || "foto"}_${pdfs[p.pdfIdx]?.name || "PDF"}.jpg`}
+                          >
+                            ⬇️
+                          </a>
+                        </>
                       )}
-                      {hasPhoto && (
-                        <a
-                          href={p.imageData}
-                          download={`${(ord ?? 0)}_${p.title || "foto"}_${pdfs[p.pdfIdx]?.name || "PDF"}.jpg`}
-                          style={{ ...btn.base, ...btn.ghost, textDecoration: "none", padding: compactList ? "4px 8px" : "8px 12px", fontSize: compactList ? 12 : 14 }}
-                        >
-                          ⬇️
-                        </a>
-                      )}
-                      <button style={{ ...btn.base, ...btn.warn, padding: compactList ? "4px 8px" : "8px 12px", fontSize: compactList ? 12 : 14 }}
-                              onClick={() => editPoint(globalIdx)}>Uredi</button>
-                      <button style={{ ...btn.base, ...btn.danger, padding: compactList ? "4px 8px" : "8px 12px", fontSize: compactList ? 12 : 14 }}
-                              onClick={() => deletePoint(globalIdx)}>Obriši</button>
+                      <button className="btn warn" onClick={() => editPoint(globalIdx)}>Uredi</button>
+                      <button className="btn danger" onClick={() => deletePoint(globalIdx)}>Obriši</button>
                     </div>
                   </div>
                 );
@@ -1073,9 +1091,7 @@ export default function App() {
           </div>
         </section>
 
-        <footer style={{ textAlign: "center", fontSize: 12, color: "#8ea3a9", padding: 16 }}>
-          © PEPEDOT 2
-        </footer>
+        <footer className="footer">© PEPEDOT 2</footer>
       </div>
     </div>
   );
