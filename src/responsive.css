@@ -7,27 +7,40 @@
   --gold:#c9a227;
 }
 
+/* ====== Global ====== */
+*{ box-sizing:border-box; }
+html, body { height:100%; }
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+  /* spriječi pinch-zoom browsera (kontrolu preuzima aplikacija) */
+  touch-action: none;
+}
+img{ max-width:100%; display:block; }
+
 /* ====== Header ====== */
 .header{
-  display:flex; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap;
+  display:flex; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap;
 }
-.app-title{ margin:0; font-size:18px; flex:1; color:var(--ink); }
-.header-actions{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.app-title{ margin:0; font-size:20px; font-weight:700; letter-spacing:.2px; flex:1; color:var(--ink); }
+.header-actions{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
 
 /* ====== Buttons ====== */
 .btn{
-  padding:10px 14px; border-radius:12px; border:1px solid var(--edge);
-  background:#0f2328; color:var(--ink); cursor:pointer; font:inherit;
+  padding:12px 16px; border-radius:14px; border:1px solid var(--edge);
+  background:#0f2328; color:var(--ink); cursor:pointer; font:inherit; line-height:1.1;
+  min-height:44px; /* bolja tap zona */
 }
-.btn.big{ padding:12px 18px; font-weight:600; }
+.btn.big{ padding:14px 18px; font-weight:600; min-height:48px; }
 .btn.warn{ background:#d99114; border-color:#d99114; color:#fff; }
 .btn.danger{ background:#a62c2b; border-color:#a62c2b; color:#fff; }
 .btn.ghost{ background:transparent; }
 .btn:disabled{ opacity:.6; cursor:not-allowed; }
 
 .iconbtn{
-  padding:6px 8px; border-radius:10px; border:1px solid var(--edge);
-  background:transparent; color:var(--ink); cursor:pointer; line-height:1; font:inherit;
+  padding:10px 12px; border-radius:12px; border:1px solid var(--edge);
+  background:transparent; color:var(--ink); cursor:pointer; line-height:1; font:inherit; min-height:40px;
 }
 .iconbtn.warn{ background:#d99114; border-color:#d99114; color:#fff; }
 .iconbtn.danger{ background:#a62c2b; border-color:#a62c2b; color:#fff; }
@@ -39,22 +52,22 @@
 .spacer{ flex:1; }
 
 .hint.success{
-  padding:6px 10px; border-radius:10px; background:#10321f; border:1px solid #1d6b3a; color:#bfe9c8;
+  padding:8px 12px; border-radius:10px; background:#10321f; border:1px solid #1d6b3a; color:#bfe9c8;
 }
 
 /* ====== RN row ====== */
 .rn-row{
-  display:flex; gap:8px; flex-wrap:nowrap; overflow:auto; padding-bottom:2px; align-items:center;
+  display:flex; gap:10px; flex-wrap:nowrap; overflow:auto; padding-bottom:2px; align-items:center;
 }
-.rn-chip{ display:flex; gap:6px; align-items:center; }
+.rn-chip{ display:flex; gap:8px; align-items:center; }
 .rn-btn{
-  padding:8px 12px; border-radius:10px; border:1px solid var(--edge);
-  background:#132b31; color:var(--ink); white-space:nowrap; cursor:pointer;
+  padding:10px 14px; border-radius:12px; border:1px solid var(--edge);
+  background:#132b31; color:var(--ink); white-space:nowrap; cursor:pointer; min-height:40px;
 }
 .rn-btn.is-active{ background:var(--accent); color:#fff; }
 .rn-add{
-  padding:8px 12px; border-radius:10px; border:1px dashed var(--edge);
-  background:transparent; color:var(--ink); cursor:pointer; min-width:44px; margin-left:6px;
+  padding:10px 14px; border-radius:12px; border:1px dashed var(--edge);
+  background:transparent; color:var(--ink); cursor:pointer; min-width:48px; margin-left:6px; min-height:40px;
 }
 .rn-count{
   margin-left:auto; font-size:12px; color:#c7d3d7; padding:0 6px; white-space:nowrap;
@@ -62,13 +75,13 @@
 
 /* ====== PDF tabs ====== */
 .pdf-tabs{
-  display:flex; gap:8px; align-items:center; flex-wrap:nowrap; overflow:auto; padding:8px; background:#0f2328;
+  display:flex; gap:10px; align-items:center; flex-wrap:nowrap; overflow:auto; padding:10px; background:#0f2328;
   border:1px solid var(--edge); border-radius:12px;
 }
-.pdf-chip{ display:flex; gap:6px; align-items:center; }
+.pdf-chip{ display:flex; gap:8px; align-items:center; }
 .pdf-btn{
-  padding:6px 10px; border-radius:10px; border:1px solid var(--edge);
-  background:#132b31; color:var(--ink); white-space:nowrap; cursor:pointer;
+  padding:8px 12px; border-radius:12px; border:1px solid var(--edge);
+  background:#132b31; color:var(--ink); white-space:nowrap; cursor:pointer; min-height:40px;
 }
 .pdf-btn.is-active{ background:var(--accent); color:#fff; }
 .pdf-count{ margin-left:auto; font-size:12px; color:#c7d3d7; white-space:nowrap; }
@@ -76,36 +89,37 @@
 /* ====== Export dropdown ====== */
 .export-wrap{ position:relative; }
 .export-menu{
-  position:absolute; top:110%; right:0; min-width:260px; background:#0f2328; border:1px solid var(--edge);
-  border-radius:12px; padding:6px; display:flex; flex-direction:column; gap:6px; z-index:30;
+  position:absolute; top:110%; right:0; min-width:280px; background:#0f2328; border:1px solid var(--edge);
+  border-radius:12px; padding:8px; display:flex; flex-direction:column; gap:8px; z-index:30;
   box-shadow: 0 12px 28px rgba(0,0,0,.35);
 }
 .export-menu > button{
-  padding:10px 12px; border-radius:10px; border:1px solid var(--edge); background:#132b31; color:#e7ecef; text-align:left; cursor:pointer;
+  padding:12px; border-radius:10px; border:1px solid var(--edge); background:#132b31; color:#e7ecef; text-align:left; cursor:pointer;
 }
 .export-menu hr{ border:none; border-top:1px solid var(--edge); margin:6px 0; }
 
 /* ====== PDF viewer ====== */
 .pdf-wrap{
   position:relative; background:#0a1a1f; border:1px solid var(--edge); border-radius:12px; overflow:hidden;
-  display:flex; justify-content:center; align-items:center; min-height:420px;
-  touch-action:none; /* za pan/pinch na mobitelu */
+  display:flex; justify-content:center; align-items:center; min-height:520px;
+  /* pan i pinch zoom kontrolira app (spriječi default scroll/zoom) */
+  touch-action: none;
 }
 
-/* osnovna širina PDF-a (prije zumiranja JS-om) */
-.pdf-page{ width: min(100vw - 48px, 980px) !important; height: auto !important; }
+/* osnovna širina PDF-a (prije JS zumiranja) — landscape-first */
+.pdf-page{ width: min(100vw - 48px, 1080px) !important; height: auto !important; }
 
 /* Pager */
-.pager{ display:flex; gap:8px; align-items:center; margin-top:8px; }
+.pager{ display:flex; gap:10px; align-items:center; margin-top:10px; }
 
 /* ====== Lista točaka ====== */
-.list{ display:grid; gap:8px; }
+.list{ display:grid; gap:10px; }
 .card{
   border:1px solid var(--edge); border-radius:12px; background:#0f2328;
-  padding:10px; display:flex; gap:10px; align-items:center;
+  padding:12px; display:flex; gap:12px; align-items:center;
 }
 .thumb{
-  width:48px; height:48px; border-radius:8px; overflow:hidden; background:#09161a;
+  width:56px; height:56px; border-radius:10px; overflow:hidden; background:#09161a;
   display:flex; align-items:center; justify-content:center; flex-shrink:0;
 }
 .thumb > img{ width:100%; height:100%; object-fit:cover; display:block; }
@@ -114,19 +128,38 @@
 .title{ font-weight:600; color:var(--ink); font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .sub{ font-size:12px; opacity:.9; }
 .note{ font-size:12px; opacity:.9; margin-top:4px; }
-.actions{ display:flex; gap:6px; flex-wrap:wrap; }
+.actions{ display:flex; gap:8px; flex-wrap:wrap; }
 
-.list-compact .thumb{ width:36px; height:36px; }
-.list-compact .card{ padding:6px; }
+.list-compact .thumb{ width:40px; height:40px; }
+.list-compact .card{ padding:8px; }
 
 /* ====== Footer ====== */
 .footer{ text-align:center; font-size:12px; color:#8ea3a9; padding:16px; }
 
-/* ====== Mobile tweaks ====== */
+/* ====== Mobile (portrait) ====== */
 @media (max-width: 640px){
-  .btn{ padding:12px 14px; }
-  .btn.big{ padding:14px 16px; }
+  .app-title{ font-size:18px; }
+  .btn{ padding:12px 14px; min-height:46px; }
+  .btn.big{ padding:14px 16px; min-height:50px; }
+  .iconbtn{ padding:10px 12px; min-height:42px; }
+  .export-menu{ min-width: 240px; }
+  .pdf-page{ width: min(100vw - 24px, 760px) !important; }
+  .pdf-wrap{ min-height: 420px; }
+}
+
+/* ====== Mobile (landscape-friendly) ====== */
+@media (max-height: 520px) and (orientation: landscape){
+  .header{ gap:8px; }
   .app-title{ font-size:16px; }
-  .title{ font-size:13px; }
-  .export-menu{ min-width: 220px; }
+  .btn{ padding:10px 12px; min-height:42px; }
+  .btn.big{ padding:12px 14px; min-height:46px; }
+  .iconbtn{ padding:8px 10px; min-height:38px; }
+  .pdf-page{ width: min(100vw - 24px, 1200px) !important; }
+  .pdf-wrap{ min-height: 360px; }
+}
+
+/* ====== Desktop large ====== */
+@media (min-width: 1280px){
+  .pdf-page{ width: min(100vw - 64px, 1280px) !important; }
+  .pdf-wrap{ min-height: 600px; }
 }
