@@ -160,7 +160,6 @@ export default function App() {
     setPoints([]);
     setSeqCounter(0);
     setPageMap({});
-    // odmah persist
     persistActiveRn();
   };
 
@@ -283,7 +282,7 @@ export default function App() {
       return;
     const filteredPoints = points.filter((pt) => pt.pdfIdx !== idx);
     const compacted = filteredPoints.map((pt) => {
-      // ako brišemo pdf idx, pomakni indekse većih
+      // pomakni indekse većih
       const newIdx = pt.pdfIdx > idx ? pt.pdfIdx - 1 : pt.pdfIdx;
       return { ...pt, pdfIdx: newIdx };
     });
@@ -311,6 +310,15 @@ export default function App() {
     () => points.filter((p) => p.pdfIdx === activePdfIdx && p.page === pageNumber),
     [points, activePdfIdx, pageNumber]
   );
+
+  // Redni broj točke po (PDF, stranica) i redoslijedu upisa
+  const getOrdinalForPoint = (pt) => {
+    const arr = points
+      .filter((p) => p.pdfIdx === pt.pdfIdx && p.page === pt.page)
+      .sort((a, b) => a.id - b.id);
+    const idx = arr.findIndex((p) => p.id === pt.id);
+    return idx >= 0 ? idx + 1 : null;
+  };
 
   const isTooCloseToExisting = (x, y, rect, minPx = 18) => {
     const list = pointsOnCurrent;
@@ -341,9 +349,14 @@ export default function App() {
       return;
     }
 
-    const title = window.prompt("Naziv točke:", `T${seqCounter + 1}`) || `T${seqCounter + 1}`;
-    const dateISO = window.prompt("Datum (YYYY-MM-DD):", new Date().toISOString().slice(0, 10)) ||
-      new Date().toISOString().slice(0, 10);
+    const title =
+      window.prompt("Naziv točke (npr. A123VIO):", `T${seqCounter + 1}`) ||
+      `T${seqCounter + 1}`;
+    const dateISO =
+      window.prompt(
+        "Datum (YYYY-MM-DD):",
+        new Date().toISOString().slice(0, 10)
+      ) || new Date().toISOString().slice(0, 10);
     const note = window.prompt("Komentar (opcionalno):", "") || "";
 
     const newPoint = {
@@ -364,12 +377,10 @@ export default function App() {
   const editPoint = (globalIdx) => {
     const p = points[globalIdx];
     if (!p) return;
-    const title =
-      window.prompt("Naziv točke:", p.title || "") ?? p.title;
+    const title = window.prompt("Naziv točke:", p.title || "") ?? p.title;
     const dateISO =
       window.prompt("Datum (YYYY-MM-DD):", p.dateISO || "") ?? p.dateISO;
-    const note =
-      window.prompt("Komentar (opcionalno):", p.note || "") ?? p.note;
+    const note = window.prompt("Komentar (opcionalno):", p.note || "") ?? p.note;
     const next = [...points];
     next[globalIdx] = { ...p, title, dateISO, note };
     setPoints(next);
@@ -380,7 +391,7 @@ export default function App() {
     setPoints((prev) => prev.filter((_, i) => i !== globalIdx));
   };
 
-  // EXCEL (za gumb "Izvoz Excel")
+  // EXCEL (ručni izvoz)
   const exportExcel = () => {
     const list = pointsOnCurrent.map((p, i) => ({
       ID: i + 1,
@@ -501,11 +512,12 @@ export default function App() {
     </div>
   );
 
-  // Render jedne točke + tooltip
-  const renderPoint = (p, idx) => {
+  // Render jedne točke + tooltip + broj
+  const renderPoint = (p) => {
     const isHovered = hoverPointId === p.id;
     const left = `${p.x * 100}%`;
     const top = `${p.y * 100}%`;
+    const ord = getOrdinalForPoint(p);
 
     return (
       <div
@@ -519,18 +531,28 @@ export default function App() {
         onMouseEnter={() => setHoverPointId(p.id)}
         onMouseLeave={() => setHoverPointId(null)}
       >
-        {/* marker */}
+        {/* marker s brojem */}
         <div
           style={{
-            width: 18,
-            height: 18,
+            width: 22,
+            height: 22,
             borderRadius: "50%",
             background: deco.gold,
             border: `2px solid ${deco.card}`,
             boxShadow: "0 1px 4px rgba(0,0,0,0.4)",
+            position: "relative",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 11,
+            fontWeight: 700,
+            color: "#1a1a1a",
           }}
           title={p.title || ""}
-        />
+        >
+          {ord}
+        </div>
+
         {/* tooltip: Naziv + Datum */}
         {isHovered && (
           <div
@@ -551,9 +573,7 @@ export default function App() {
             <div>
               <strong>{p.title || "(bez naziva)"}</strong>
             </div>
-            <div style={{ opacity: 0.9 }}>
-              Datum: {p.dateISO || "(n/a)"}
-            </div>
+            <div style={{ opacity: 0.9 }}>Datum: {p.dateISO || "(n/a)"}</div>
           </div>
         )}
       </div>
@@ -730,7 +750,7 @@ export default function App() {
           )}
         </section>
 
-        {/* LISTA TOČAKA (sa traženim gumbima) */}
+        {/* LISTA TOČAKA (sa traženim gumbima i kompaktnim prikazom) */}
         <section style={{ ...panel, marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <h3 style={{ margin: 0, fontSize: 14, color: "#c7d3d7" }}>Fotografije (lista)</h3>
@@ -743,13 +763,14 @@ export default function App() {
             </button>
           </div>
 
-          <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ display: "grid", gap: compactList ? 6 : 8 }}>
             {points
               .filter((p) =>
                 showAllSessions ? true : (p.pdfIdx === activePdfIdx && p.page === pageNumber)
               )
               .map((p, globalIdx) => {
                 const hasPhoto = !!p.imageData;
+                const ord = getOrdinalForPoint(p);
                 return (
                   <div
                     key={p.id}
@@ -757,13 +778,20 @@ export default function App() {
                       border: `1px solid ${deco.edge}`,
                       borderRadius: 12,
                       background: "#0f2328",
-                      padding: 10,
+                      padding: compactList ? 6 : 10,
                       display: "flex",
-                      gap: 10,
+                      gap: compactList ? 6 : 10,
                       alignItems: "center",
                     }}
                   >
-                    <div style={{ width: 48, height: 48, borderRadius: 8, overflow: "hidden", background: "#09161a", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <div style={{
+                      width: compactList ? 32 : 48,
+                      height: compactList ? 32 : 48,
+                      borderRadius: 8,
+                      overflow: "hidden",
+                      background: "#09161a",
+                      display: "flex", alignItems: "center", justifyContent: "center"
+                    }}>
                       {hasPhoto ? (
                         <img
                           src={p.imageData}
@@ -771,46 +799,48 @@ export default function App() {
                           style={{ width: "100%", height: "100%", objectFit: "cover" }}
                         />
                       ) : (
-                        <span style={{ fontSize: 12, color: "#7b8a8f" }}>bez slike</span>
+                        <span style={{ fontSize: 11, color: "#7b8a8f" }}>
+                          {compactList ? "—" : "bez slike"}
+                        </span>
                       )}
                     </div>
+
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, color: deco.ink }}>
-                        {p.title || "(bez naziva)"}
+                      <div style={{ fontWeight: 600, color: deco.ink, fontSize: compactList ? 12 : 14 }}>
+                        {ord != null ? `${ord}. ` : ""}{p.title || "(bez naziva)"}
                       </div>
                       <div style={{ fontSize: 12, opacity: 0.9 }}>
-                        Datum: {p.dateISO || "(n/a)"} · PDF: {pdfs[p.pdfIdx]?.name || "?"} · str: {p.page}
+                        {compactList
+                          ? <>Datum: {p.dateISO || "(n/a)"} · PDF: {pdfs[p.pdfIdx]?.name || "?"} · str: {p.page}</>
+                          : <>Datum: {p.dateISO || "(n/a)"} · PDF: {pdfs[p.pdfIdx]?.name || "?"} · str: {p.page}</>
+                        }
                       </div>
-                      {!!p.note && (
+                      {!compactList && !!p.note && (
                         <div style={{ fontSize: 12, opacity: 0.9, marginTop: 4 }}>
                           Komentar: {p.note}
                         </div>
                       )}
                     </div>
-                    <div style={{ display: "flex", gap: 8 }}>
+
+                    <div style={{ display: "flex", gap: compactList ? 6 : 8 }}>
                       {hasPhoto && (
                         <a
                           href={p.imageData}
                           download={`${p.title || "foto"}.jpg`}
-                          style={{ ...btn.base, ...btn.ghost, textDecoration: "none" }}
+                          style={{ ...btn.base, ...btn.ghost, textDecoration: "none", padding: compactList ? "4px 8px" : "8px 12px", fontSize: compactList ? 12 : 14 }}
                         >
                           ⬇️
                         </a>
                       )}
-                      <button style={{ ...btn.base, ...btn.warn }} onClick={() => editPoint(globalIdx)}>
-                        Uredi
-                      </button>
-                      <button style={{ ...btn.base, ...btn.danger }} onClick={() => deletePoint(globalIdx)}>
-                        Obriši
-                      </button>
+                      <button style={{ ...btn.base, ...btn.warn, padding: compactList ? "4px 8px" : "8px 12px", fontSize: compactList ? 12 : 14 }}
+                              onClick={() => editPoint(globalIdx)}>Uredi</button>
+                      <button style={{ ...btn.base, ...btn.danger, padding: compactList ? "4px 8px" : "8px 12px", fontSize: compactList ? 12 : 14 }}
+                              onClick={() => deletePoint(globalIdx)}>Obriši</button>
                     </div>
                   </div>
                 );
               })}
           </div>
-
-          {/* placeholder uklonjen (raniji bug):
-              {/* compact list placeholder removed */ }
         </section>
 
         <footer style={{ textAlign: "center", fontSize: 12, color: "#8ea3a9", padding: 16 }}>
