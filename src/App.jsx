@@ -34,40 +34,40 @@ export default function App() {
     boxShadow: "0 1px 0 rgba(255,255,255,0.03) inset, 0 6px 24px rgba(0,0,0,0.25)",
   };
 
-  // RN / spremanje
+  // RN / storage
   const [rnList, setRnList] = useState([]);
   const [activeRn, setActiveRn] = useState("");
   const [persistWarning, setPersistWarning] = useState("");
 
-  // PDF + točke
+  // PDF + pages
   const [pdfs, setPdfs] = useState([]);
   const [activePdfIdx, setActivePdfIdx] = useState(0);
   const [pageNumber, setPageNumber] = useState(1);
   const [pageMap, setPageMap] = useState({});
   const [numPages, setNumPages] = useState(1);
 
-  // Točke
+  // Points
   const [points, setPoints] = useState([]);
   const [seqCounter, setSeqCounter] = useState(0);
 
-  // Lista/UX
+  // UI list
   const [showAllSessions, setShowAllSessions] = useState(false);
   const [compactList, setCompactList] = useState(false);
-  const [showPreview, setShowPreview] = useState(false); // “Predpregled” default OFF
+  const [showPreview, setShowPreview] = useState(false); // Predpregled default OFF
 
-  // Korisnik – inicijali
+  // User initials
   const [userInitials, setUserInitials] = useState(() => localStorage.getItem("pepedot2_user_initials") || "");
 
-  // Foto staging
+  // Photo staging
   const [stagedPhoto, setStagedPhoto] = useState(null);
   const [stagedNotice, setStagedNotice] = useState(false);
 
-  // Tooltip/hover
+  // Tooltip state
   const [hoverPointId, setHoverPointId] = useState(null);
   const hoverInT = useRef(null);
   const hoverOutT = useRef(null);
 
-  // Edit fotke postojeće točke
+  // Edit existing point photo
   const [photoEditTargetId, setPhotoEditTargetId] = useState(null);
   const editPhotoInputRef = useRef(null);
 
@@ -76,16 +76,16 @@ export default function App() {
   const exportBtnRef = useRef(null);
 
   // Viewer (pan & zoom)
-  const captureRef = useRef(null);        // wrapper točno preko PDF-a
-  const viewerInnerRef = useRef(null);    // transformirano (scale/translate) platno
+  const captureRef = useRef(null);     // bounding rect of viewer (visible area)
+  const viewerInnerRef = useRef(null); // transformed layer (translate/scale)
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const panState = useRef({ panning: false, startX: 0, startY: 0, originX: 0, originY: 0, moved: false });
+  const panState = useRef({ panning: false, startX: 0, startY: 0, originX: 0, originY: 0 });
 
-  // mobilno/desktop detekcija
+  // device hints
   const isTouch = typeof window !== "undefined" ? window.matchMedia("(pointer: coarse)").matches : false;
 
-  // file pickeri
+  // file pickers
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
 
@@ -99,7 +99,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    return () => { clearTimeout(hoverInT.current); clearTimeout(hoverOutT.current); };
+    return () => {
+      clearTimeout(hoverInT.current);
+      clearTimeout(hoverOutT.current);
+    };
   }, []);
 
   const clamp01 = (v) => Math.min(1, Math.max(0, v));
@@ -126,6 +129,7 @@ export default function App() {
 
   useEffect(() => { setRnList(loadRnList()); }, []);
 
+  // ask initials on opening/creating RN
   useEffect(() => {
     if (!activeRn) return;
     let initials = localStorage.getItem("pepedot2_user_initials") || userInitials;
@@ -135,7 +139,7 @@ export default function App() {
       setUserInitials(initials);
       localStorage.setItem("pepedot2_user_initials", initials);
     }
-  }, [activeRn]); // inicijali pri otvaranju RN-a
+  }, [activeRn]);
 
   const loadActiveRn = (name) => {
     if (!name) return;
@@ -168,10 +172,11 @@ export default function App() {
   };
   useEffect(() => { persistActiveRn(); }, [activeRn, pdfs, activePdfIdx, pageNumber, points, seqCounter, pageMap]);
 
-  // RN akcije
+  // RN actions
   const createRn = () => {
     if (rnList.length >= MAX_RN) return window.alert(`Dosegnut je maksimalan broj RN-ova (${MAX_RN}).`);
-    const name = window.prompt("Naziv novog RN-a:"); if (!name) return;
+    const name = window.prompt("Naziv novog RN-a:");
+    if (!name) return;
     if (rnList.includes(name)) return window.alert("RN s tim nazivom već postoji.");
     const updated = [...rnList, name];
     setRnList(updated);
@@ -279,13 +284,11 @@ export default function App() {
     setPageMap(pm2);
   };
 
-  // Memo PDF file
   const activePdfFile = useMemo(() => {
     const p = pdfs[activePdfIdx]; if (!p) return null;
     return { data: new Uint8Array(p.data) };
   }, [pdfs, activePdfIdx]);
 
-  // Točke helpers
   const pointsOnCurrent = useMemo(
     () => points.filter((p) => p.pdfIdx === activePdfIdx && p.page === pageNumber),
     [points, activePdfIdx, pageNumber]
@@ -297,48 +300,46 @@ export default function App() {
     return idx >= 0 ? idx + 1 : null;
   };
 
-  // --- Image compression (less storage) ---
+  // --- image compression to save storage ---
   const loadImage = (src) =>
     new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src; });
   const compressDataUrl = async (dataURL, maxSide = 1600, quality = 0.82) => {
     const img = await loadImage(dataURL);
-    let { width, height } = img;
-    const scale = Math.min(1, maxSide / Math.max(width, height));
-    const w = Math.round(width * scale);
-    const h = Math.round(height * scale);
+    const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+    const w = Math.round(img.width * scale);
+    const h = Math.round(img.height * scale);
     const canvas = document.createElement("canvas");
     canvas.width = w; canvas.height = h;
     const ctx = canvas.getContext("2d");
     ctx.drawImage(img, 0, 0, w, h);
     return canvas.toDataURL("image/jpeg", quality);
-  };
+    };
   const readAndCompress = async (file) =>
     new Promise((resolve, reject) => {
       const fr = new FileReader();
       fr.onload = async () => {
-        try {
-          const compressed = await compressDataUrl(fr.result);
-          resolve(compressed);
-        } catch (e) { reject(e); }
+        try { resolve(await compressDataUrl(fr.result)); }
+        catch (e) { reject(e); }
       };
       fr.onerror = reject;
       fr.readAsDataURL(file);
     });
 
-  // --- Dodavanje točke (sada na DOUBLE-CLICK/TAP zbog panninga) ---
+  // --- add point (now on double click/tap) and clamp inside PDF ---
   const addPointAtClientXY = (clientX, clientY) => {
     if (!captureRef.current || !viewerInnerRef.current) return;
     const rect = captureRef.current.getBoundingClientRect();
-    // Transformiraj koordinatu u lokalni sustav (uzimajući u obzir pan & zoom)
-    const localX = (clientX - rect.left - offset.x) / (rect.width) / zoom;
-    const localY = (clientY - rect.top - offset.y) / (rect.height) / zoom;
+
+    // translate client->local (respect pan & zoom)
+    const localX = (clientX - rect.left - offset.x) / rect.width / zoom;
+    const localY = (clientY - rect.top - offset.y) / rect.height / zoom;
 
     if (localX < 0 || localX > 1 || localY < 0 || localY > 1) return;
 
     const xx = clamp01(localX);
     const yy = clamp01(localY);
 
-    // preblizu postojećoj?
+    // too close?
     const px = xx * rect.width;
     const py = yy * rect.height;
     const tooClose = pointsOnCurrent.some((p) => {
@@ -373,7 +374,7 @@ export default function App() {
     addPointAtClientXY(e.clientX, e.clientY);
   };
 
-  // --- Pan & Zoom handlers ---
+  // --- pan & zoom ---
   const onMouseDown = (e) => {
     if (e.button !== 0) return;
     if (!captureRef.current) return;
@@ -381,14 +382,12 @@ export default function App() {
       panning: true,
       startX: e.clientX, startY: e.clientY,
       originX: offset.x, originY: offset.y,
-      moved: false,
     };
   };
   const onMouseMove = (e) => {
     if (!panState.current.panning) return;
     const dx = e.clientX - panState.current.startX;
     const dy = e.clientY - panState.current.startY;
-    if (Math.hypot(dx, dy) > 3) panState.current.moved = true;
     setOffset({ x: panState.current.originX + dx, y: panState.current.originY + dy });
   };
   const onMouseUp = () => { panState.current.panning = false; };
@@ -402,7 +401,6 @@ export default function App() {
     const delta = -e.deltaY;
     const factor = delta > 0 ? 1.1 : 0.9;
     const newZoom = clamp(zoom * factor, 1, 4);
-    // zadrži fokus pod kotačićem
     const newOffset = {
       x: mx - (mx * newZoom) / zoom + offset.x,
       y: my - (my * newZoom) / zoom + offset.y,
@@ -411,10 +409,9 @@ export default function App() {
     setOffset(newOffset);
   };
 
-  // Touch (pan + pinch)
+  // touch support (pan + pinch)
   const touchState = useRef({ touches: [], lastDist: 0 });
   const getDist = (t1, t2) => Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-
   const onTouchStart = (e) => {
     const ts = e.touches;
     if (ts.length === 1) {
@@ -422,7 +419,6 @@ export default function App() {
         panning: true,
         startX: ts[0].clientX, startY: ts[0].clientY,
         originX: offset.x, originY: offset.y,
-        moved: false,
       };
     } else if (ts.length === 2) {
       touchState.current.touches = [ts[0], ts[1]];
@@ -434,7 +430,6 @@ export default function App() {
     if (ts.length === 1 && panState.current.panning) {
       const dx = ts[0].clientX - panState.current.startX;
       const dy = ts[0].clientY - panState.current.startY;
-      if (Math.hypot(dx, dy) > 3) panState.current.moved = true;
       setOffset({ x: panState.current.originX + dx, y: panState.current.originY + dy });
     } else if (ts.length === 2) {
       const dist = getDist(ts[0], ts[1]);
@@ -446,7 +441,7 @@ export default function App() {
   };
   const onTouchEnd = () => { panState.current.panning = false; touchState.current.touches = []; };
 
-  // Uredi/obriši točku (bez promjena)
+  // edit/delete point
   const editPoint = (globalIdx) => {
     const p = points[globalIdx]; if (!p) return;
     const title = window.prompt("Naziv točke:", p.title || "") ?? p.title;
@@ -463,7 +458,7 @@ export default function App() {
   };
   const deletePoint = (globalIdx) => { if (window.confirm("Obrisati točku?")) setPoints((prev) => prev.filter((_, i) => i !== globalIdx)); };
 
-  // FOTO (kamera/galerija) – kompresija
+  // photo (camera/gallery) with compression
   const onPickCamera = () => cameraInputRef.current?.click();
   const onPickGallery = () => galleryInputRef.current?.click();
   const onCameraSelected = async (e) => {
@@ -481,7 +476,7 @@ export default function App() {
     setStagedNotice(true);
   };
 
-  // EDIT FOTKE NA POSTOJEĆOJ TOČKI
+  // change photo on existing point
   const startEditPhoto = (pointId) => { setPhotoEditTargetId(pointId); editPhotoInputRef.current?.click(); };
   const onEditPhotoSelected = async (e) => {
     const file = e.target.files?.[0]; e.target.value="";
@@ -495,7 +490,7 @@ export default function App() {
     setPoints((prev) => prev.map((p) => (p.id === pointId ? { ...p, imageData: null } : p)));
   };
 
-  // Exporti (bez promjena u logici)
+  // Export(s)
   const exportExcel = () => {
     const sorted = pointsOnCurrent.slice().sort((a, b) => a.id - b.id);
     const rows = sorted.map((p, i) => ({
@@ -653,7 +648,7 @@ export default function App() {
     } catch (e) { console.error(e); window.alert("Greška pri importu ZIP-a."); }
   };
 
-  // RN traka (ikone + brojač + +)
+  // RN picker row
   const RnPicker = () => (
     <div className="rn-row">
       {rnList.map((rn) => (
@@ -684,26 +679,26 @@ export default function App() {
     </div>
   );
 
-  // Pametno pozicioniranje tooltipa (gravitacija prema centru)
+  // smart tooltip render (gravitates toward center)
   const renderPoint = (p) => {
     const isOpen = hoverPointId === p.id;
-    const xx = clamp01(p.x), yy = clamp01(p.y);
-    const leftPercent = xx * 100, topPercent = yy * 100;
+
+    const x = clamp01(p.x ?? 0);
+    const y = clamp01(p.y ?? 0);
+
+    const leftPercent = x * 100, topPercent = y * 100;
     const ord  = getOrdinalForPoint(p);
 
     const onEnter = () => { clearTimeout(hoverOutT.current); hoverInT.current = setTimeout(() => setHoverPointId(p.id), 80); };
     const onLeave = () => { clearTimeout(hoverInT.current); hoverOutT.current = setTimeout(() => setHoverPointId(null), 120); };
     const onTouch = () => { clearTimeout(hoverInT.current); clearTimeout(hoverOutT.current); setHoverPointId(p.id); setTimeout(() => setHoverPointId((cur) => (cur === p.id ? null : cur)), 1600); };
 
-    // gdje je točka u odnosu na centar?
-    const dx = xx - 0.5;
-    const dy = yy - 0.5;
-    // default: tooltip iznad; ako smo previsoko → ispod; ako smo skroz lijevo/desno → bočno
     let tipPos = "top";
-    if (Math.abs(dx) > 0.35) tipPos = dx < 0 ? "right" : "left";
-    if (yy < 0.15) tipPos = "bottom";
+    if (y < 0.15) tipPos = "bottom";
+    if (x > 0.85) tipPos = "left";
+    if (x < 0.15) tipPos = "right";
 
-    const tipStyleBase = {
+    const tipBase = {
       position: "absolute",
       background: "rgba(0,0,0,0.9)",
       color: "#fff",
@@ -723,12 +718,12 @@ export default function App() {
 
     const tipStyle =
       tipPos === "top"
-        ? { ...tipStyleBase, left: "50%", bottom: "120%", transform: "translateX(-50%)" }
+        ? { ...tipBase, left: "50%", bottom: "120%", transform: "translateX(-50%)" }
         : tipPos === "bottom"
-        ? { ...tipStyleBase, left: "50%", top: "120%", transform: "translateX(-50%)" }
+        ? { ...tipBase, left: "50%", top: "120%", transform: "translateX(-50%)" }
         : tipPos === "left"
-        ? { ...tipStyleBase, right: "120%", top: "50%", transform: "translateY(-50%)" }
-        : { ...tipStyleBase, left: "120%", top: "50%", transform: "translateY(-50%)" }; // right
+        ? { ...tipBase, right: "120%", top: "50%", transform: "translateY(-50%)" }
+        : { ...tipBase, left: "120%", top: "50%", transform: "translateY(-50%)" }; // right
 
     return (
       <div
@@ -737,7 +732,7 @@ export default function App() {
           position: "absolute",
           left: `${leftPercent}%`,
           top: `${topPercent}%`,
-          transform: `translate(-50%, -50%)`,
+          transform: "translate(-50%, -50%)",
           width: 36, height: 36, zIndex: 6,
         }}
         onMouseEnter={onEnter} onMouseLeave={onLeave} onTouchStart={onTouch}
@@ -764,7 +759,6 @@ export default function App() {
     );
   };
 
-  // Viewer kontrole
   const resetView = () => { setZoom(1); setOffset({ x: 0, y: 0 }); };
 
   return (
@@ -792,14 +786,18 @@ export default function App() {
                   <button onClick={() => { setExportOpen(false); doExportZip(); }}>Export RN (.zip)</button>
                   <button onClick={() => { setExportOpen(false); exportElaborat(); }}>Export ELABORAT (.zip)</button>
                   <hr />
-                  <button onClick={() => { setExportOpen(false); onClickImportButton(); }}>📂 Import RN (.zip)</button>
+                  <button onClick={() => { setExportOpen(false); 
+                    const input = document.createElement("input");
+                    input.type = "file"; input.accept = ".zip,application/zip";
+                    input.onchange = (e) => { const f = e.target.files?.[0]; if (f) doImportZip(f); };
+                    input.click();
+                  }}>📂 Import RN (.zip)</button>
                 </div>
               )}
             </div>
 
-            {/* globalno dodavanje foto (kamera/galerija) ostaje */}
-            <button className="btn" onClick={() => cameraInputRef.current?.click()} disabled={!activeRn}>📷 Kamera</button>
-            <button className="btn" onClick={() => galleryInputRef.current?.click()} disabled={!activeRn}>🖼️ Galerija</button>
+            <button className="btn" onClick={onPickCamera} disabled={!activeRn}>📷 Kamera</button>
+            <button className="btn" onClick={onPickGallery} disabled={!activeRn}>🖼️ Galerija</button>
 
             <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={onCameraSelected} style={{ display: "none" }} />
             <input ref={galleryInputRef} type="file" accept="image/*" onChange={onGallerySelected} style={{ display: "none" }} />
@@ -813,46 +811,37 @@ export default function App() {
           </div>
         )}
 
-        {/* RN lista */}
+        {/* RN list */}
         <section style={{ ...panel, marginBottom: 12 }}>
           <div className="section-title">Radni nalozi</div>
-          <div className="rn-row">
-            {rnList.map((rn) => (
-              <div key={rn} className="rn-chip">
-                <button
-                  className={`rn-btn ${activeRn === rn ? "is-active" : ""}`}
-                  onClick={() => { setActiveRn(rn); loadActiveRn(rn); }}
-                >
-                  {rn}
-                </button>
-                <button className="iconbtn" title="Promijeni inicijale" onClick={changeInitialsForUser}>🧾</button>
-                <button className="iconbtn" title="Preimenuj RN" onClick={() => renameRn(rn)}>📝</button>
-                <button className="iconbtn danger" title="Obriši RN" onClick={() => deleteRnWithConfirm(rn)}>🗑️</button>
-              </div>
-            ))}
-            <span className="rn-count">{rnList.length}/{MAX_RN}</span>
-            <button className="rn-add" onClick={createRn} disabled={rnList.length >= MAX_RN}>+</button>
-          </div>
+          <RnPicker />
         </section>
 
-        {/* PDF TABOVI + “📄 Dodaj PDF” desno */}
+        {/* PDF tabs + Add PDF on right */}
         {!!pdfs.length && (
           <section style={{ ...panel, marginBottom: 12 }}>
             <div className="pdf-tabs">
               {pdfs.map((p, i) => (
                 <div key={p.id} className="pdf-chip">
-                  <button onClick={() => setActivePdf(i)} className={`pdf-btn ${i === activePdfIdx ? "is-active" : ""}`}>
+                  <button
+                    onClick={() => setActivePdf(i)}
+                    title={p.name || `PDF ${i + 1}`}
+                    className={`pdf-btn ${i === activePdfIdx ? "is-active" : ""}`}
+                  >
                     {p.name || `PDF ${i + 1}`}
                   </button>
                   <button className="iconbtn" title="Preimenuj PDF" onClick={() => renamePdf(i)}>📝</button>
                   <button className="iconbtn danger" title="Obriši PDF" onClick={() => deletePdfWithConfirm(i)}>🗑️</button>
                 </div>
               ))}
+
               <span className="pdf-count">{pdfs.length}/{MAX_PDFS}</span>
+
               <button
                 className="btn big"
                 onClick={handlePdfPicker}
                 disabled={!activeRn || pdfs.length >= MAX_PDFS}
+                title={!activeRn ? "Najprije odaberi ili kreiraj RN" : (pdfs.length >= MAX_PDFS ? `Maksimum ${MAX_PDFS} PDF-ova` : "Dodaj PDF")}
                 style={{ marginLeft: "auto" }}
               >
                 📄 Dodaj PDF
@@ -861,7 +850,7 @@ export default function App() {
           </section>
         )}
 
-        {/* VIEWER + kontrole zum/pan */}
+        {/* VIEWER with pan/zoom + double click to add point */}
         <section style={{ ...panel, marginBottom: 12 }}>
           <div className="bar" style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <div className="muted">
@@ -907,7 +896,6 @@ export default function App() {
                   <Page className="pdf-page" pageNumber={pageNumber} renderTextLayer={false} renderAnnotationLayer={false} />
                 </Document>
 
-                {/* Overlay točke (skalira i pomiče se zajedno s PDF-om) */}
                 <div style={{ position: "absolute", inset: 0, pointerEvents: "auto", zIndex: 5 }}>
                   {pointsOnCurrent.map(renderPoint)}
                 </div>
@@ -974,10 +962,9 @@ export default function App() {
                       <button className="iconbtn" title="Uredi točku" onClick={() => editPoint(globalIdx)}>✏️</button>
                       <button className="iconbtn danger" title="Obriši točku" onClick={() => deletePoint(globalIdx)}>🗑️</button>
 
-                      {/* desktop: jedna ikona (datoteka); mobitel: i kamera i datoteka */}
                       {isTouch ? (
                         <>
-                          <button className="iconbtn" title={hasPhoto ? "Promijeni fotku (kamera)" : "Dodaj fotku (kamera)"} onClick={() => cameraInputRef.current?.click()}>📷</button>
+                          <button className="iconbtn" title={hasPhoto ? "Promijeni fotku (kamera)" : "Dodaj fotku (kamera)"} onClick={onPickCamera}>📷</button>
                           <button className="iconbtn" title={hasPhoto ? "Promijeni fotku (datoteka)" : "Dodaj fotku (datoteka)"} onClick={() => startEditPhoto(p.id)}>🖼️</button>
                         </>
                       ) : (
