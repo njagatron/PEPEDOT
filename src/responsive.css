@@ -7,15 +7,17 @@
   --gold:#c9a227;
 }
 
+/* ====== Header ====== */
 .header{
   display:flex; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap;
 }
-.app-title{ margin:0; font-size:18px; flex:1; }
+.app-title{ margin:0; font-size:18px; flex:1; color:var(--ink); }
 .header-actions{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 
+/* ====== Buttons ====== */
 .btn{
   padding:10px 14px; border-radius:12px; border:1px solid var(--edge);
-  background:#0f2328; color:var(--ink); cursor:pointer;
+  background:#0f2328; color:var(--ink); cursor:pointer; font:inherit;
 }
 .btn.big{ padding:12px 18px; font-weight:600; }
 .btn.warn{ background:#d99114; border-color:#d99114; color:#fff; }
@@ -23,6 +25,15 @@
 .btn.ghost{ background:transparent; }
 .btn:disabled{ opacity:.6; cursor:not-allowed; }
 
+.iconbtn{
+  padding:6px 8px; border-radius:10px; border:1px solid var(--edge);
+  background:transparent; color:var(--ink); cursor:pointer; line-height:1; font:inherit;
+}
+.iconbtn.warn{ background:#d99114; border-color:#d99114; color:#fff; }
+.iconbtn.danger{ background:#a62c2b; border-color:#a62c2b; color:#fff; }
+.iconbtn.ghost{ background:transparent; border-color:var(--edge); }
+
+/* ====== Text bits ====== */
 .section-title{ font-size:14px; color:#c7d3d7; margin-bottom:8px; }
 .muted{ font-size:12px; color:#c7d3d7; }
 .spacer{ flex:1; }
@@ -31,7 +42,7 @@
   padding:6px 10px; border-radius:10px; background:#10321f; border:1px solid #1d6b3a; color:#bfe9c8;
 }
 
-/* RN */
+/* ====== RN row ====== */
 .rn-row{
   display:flex; gap:8px; flex-wrap:nowrap; overflow:auto; padding-bottom:2px; align-items:center;
 }
@@ -41,22 +52,15 @@
   background:#132b31; color:var(--ink); white-space:nowrap; cursor:pointer;
 }
 .rn-btn.is-active{ background:var(--accent); color:#fff; }
-.iconbtn{
-  padding:6px 8px; border-radius:10px; border:1px solid var(--edge);
-  background:transparent; color:var(--ink); cursor:pointer; line-height:1;
-}
-.iconbtn.warn{ background:#d99114; border-color:#d99114; color:#fff; }
-.iconbtn.danger{ background:#a62c2b; border-color:#a62c2b; color:#fff; }
-.iconbtn.ghost{ background:transparent; border-color:var(--edge); }
 .rn-add{
   padding:8px 12px; border-radius:10px; border:1px dashed var(--edge);
   background:transparent; color:var(--ink); cursor:pointer; min-width:44px; margin-left:6px;
 }
 .rn-count{
-  margin-left:auto; font-size:12px; color:#c7d3d7; padding:0 6px;
+  margin-left:auto; font-size:12px; color:#c7d3d7; padding:0 6px; white-space:nowrap;
 }
 
-/* PDF tabs */
+/* ====== PDF tabs ====== */
 .pdf-tabs{
   display:flex; gap:8px; align-items:center; flex-wrap:nowrap; overflow:auto; padding:8px; background:#0f2328;
   border:1px solid var(--edge); border-radius:12px;
@@ -67,9 +71,9 @@
   background:#132b31; color:var(--ink); white-space:nowrap; cursor:pointer;
 }
 .pdf-btn.is-active{ background:var(--accent); color:#fff; }
-.pdf-count{ margin-left:auto; font-size:12px; color:#c7d3d7; }
+.pdf-count{ margin-left:auto; font-size:12px; color:#c7d3d7; white-space:nowrap; }
 
-/* Export dropdown */
+/* ====== Export dropdown ====== */
 .export-wrap{ position:relative; }
 .export-menu{
   position:absolute; top:110%; right:0; min-width:260px; background:#0f2328; border:1px solid var(--edge);
@@ -81,21 +85,21 @@
 }
 .export-menu hr{ border:none; border-top:1px solid var(--edge); margin:6px 0; }
 
-/* PDF viewer */
+/* ====== PDF viewer ====== */
 .pdf-wrap{
   position:relative; background:#0a1a1f; border:1px solid var(--edge); border-radius:12px; overflow:hidden;
   display:flex; justify-content:center; align-items:center; min-height:420px;
+  touch-action:none; /* za pan/pinch na mobitelu */
 }
-/* Fluidna širina PDF-a */
+
+/* osnovna širina PDF-a (prije zumiranja JS-om) */
 .pdf-page{ width: min(100vw - 48px, 980px) !important; height: auto !important; }
 
 /* Pager */
 .pager{ display:flex; gap:8px; align-items:center; margin-top:8px; }
 
-/* Lista točaka */
+/* ====== Lista točaka ====== */
 .list{ display:grid; gap:8px; }
-.list-compact .thumb{ width:36px; height:36px; }
-.list-compact .card{ padding:6px; }
 .card{
   border:1px solid var(--edge); border-radius:12px; background:#0f2328;
   padding:10px; display:flex; gap:10px; align-items:center;
@@ -112,9 +116,13 @@
 .note{ font-size:12px; opacity:.9; margin-top:4px; }
 .actions{ display:flex; gap:6px; flex-wrap:wrap; }
 
+.list-compact .thumb{ width:36px; height:36px; }
+.list-compact .card{ padding:6px; }
+
+/* ====== Footer ====== */
 .footer{ text-align:center; font-size:12px; color:#8ea3a9; padding:16px; }
 
-/* Mobile tweaks */
+/* ====== Mobile tweaks ====== */
 @media (max-width: 640px){
   .btn{ padding:12px 14px; }
   .btn.big{ padding:14px 16px; }
