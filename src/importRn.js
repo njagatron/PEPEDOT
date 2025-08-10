@@ -1,46 +1,64 @@
+// src/importRn.js
 import JSZip from "jszip";
 
-function uint8ToDataURL(u8, mime = "image/jpeg") {
-  const bin = Array.from(u8).map((b) => String.fromCharCode(b)).join("");
-  const b64 = btoa(bin);
-  return `data:${mime};base64,${b64}`;
-}
+/**
+ * Učitaj ZIP i vrati objekt stanja:
+ * { pdfs, activePdfIdx, pageNumber, points, seqCounter, pageMap }
+ *
+ * Napomena:
+ * - Očekuje datoteke: manifest.json, pdfs/manifest.json, points.json, pdf binarne fajlove.
+ * - points.json već sadrži imageData (dataURL) — ako postoji, koristi se direktno.
+ */
+export async function importRnFromZip(fileOrBlob) {
+  const zip = await JSZip.loadAsync(fileOrBlob);
 
-export async function importRnFromZip(file) {
-  const zip = await JSZip.loadAsync(file);
-  const rnJsonFile = zip.file("rn.json");
-  if (!rnJsonFile) throw new Error("Nedostaje rn.json u ZIP-u.");
+  // 1) Manifest (osnovni metapodaci)
+  const manifestStr = await zip.file("manifest.json").async("string");
+  const manifest = JSON.parse(manifestStr);
 
-  const rnJson = JSON.parse(await rnJsonFile.async("string"));
+  // 2) PDF manifest i binarni PDF-ovi
+  const pdfsManifestStr = await zip.file("pdfs/manifest.json").async("string");
+  const pdfsManifest = JSON.parse(pdfsManifestStr);
 
   const pdfs = [];
-  for (const p of rnJson.pdfs || []) {
-    const zf = zip.file(p.dataPath);
-    if (!zf) continue;
-    const u8 = new Uint8Array(await zf.async("uint8array"));
-    pdfs.push({ id: Date.now() + Math.random(), name: p.name, data: Array.from(u8), numPages: 1 });
+  for (const entry of pdfsManifest) {
+    const fileEntry = zip.file(`pdfs/${entry.file}`);
+    if (!fileEntry) continue;
+    const bytes = await fileEntry.async("uint8array");
+    pdfs[entry.index] = {
+      id: Date.now() + entry.index,
+      name: entry.name || entry.file,
+      data: Array.from(bytes),
+      numPages: entry.numPages || 1,
+    };
   }
 
-  const points = [];
-  for (const pt of rnJson.points || []) {
-    let imageData = null;
-    if (pt.imagePath) {
-      const zf = zip.file(pt.imagePath);
-      if (zf) {
-        const u8 = new Uint8Array(await zf.async("uint8array"));
-        imageData = uint8ToDataURL(u8, "image/jpeg");
-      }
-    }
-    const { imagePath, ...rest } = pt;
-    points.push({ ...rest, imageData });
-  }
+  // 3) Točke (JSON). Očekujemo imageData kao dataURL, ako ju je izvoz spremio.
+  const pointsStr = await zip.file("points.json").async("string");
+  let points = JSON.parse(pointsStr);
 
+  // Osiguraj kompatibilnost (ako neki field nedostaje)
+  points = points.map((p) => ({
+    id: p.id ?? Date.now() + Math.floor(Math.random() * 100000),
+    pdfIdx: p.pdfIdx ?? 0,
+    page: p.page ?? 1,
+    x: p.x ?? 0,
+    y: p.y ?? 0,
+    title: p.title ?? "",
+    dateISO: p.dateISO ?? "",
+    timeISO: p.timeISO ?? "",
+    note: p.note ?? "",
+    imageData: p.imageData ?? null, // ako nema u JSON-u, mogli bismo pročitati iz /images (nije nužno)
+  }));
+
+  // Vraćamo stanje za App.jsx
   return {
-    rnName: rnJson.rnName || "",
-    activePdfIdx: rnJson.activePdfIdx || 0,
-    pageNumber: rnJson.pageNumber || 1,
-    seqCounter: rnJson.seqCounter || 0,
     pdfs,
+    activePdfIdx: manifest.activePdfIdx ?? 0,
+    pageNumber: manifest.pageNumber ?? 1,
     points,
+    seqCounter: manifest.seqCounter ?? points.length,
+    pageMap: manifest.pageMap ?? {},
+    rnName: manifest.rnName ?? "RN",
   };
 }
