@@ -71,12 +71,15 @@ export default function App() {
   const [stagedPhoto, setStagedPhoto] = useState(null); // dataURL
   const [stagedNotice, setStagedNotice] = useState(false);
 
-  // Hover oblačić
+  // Hover/touch oblačić
   const [hoverPointId, setHoverPointId] = useState(null);
+  const hideTipTimeout = useRef(null);
 
   const viewerRef = useRef(null);
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
+
+  useEffect(() => () => clearTimeout(hideTipTimeout.current), []);
 
   // Helpers
   const safePersist = (key, value) => {
@@ -301,7 +304,7 @@ export default function App() {
   };
 
   const handleViewerClick = (e) => {
-    if (modeInfoOnly) return; // u "TOČKA INFO" režimu ne dodaj
+    if (modeInfoOnly) return; // "TOČKA INFO": ne dodaje točke
     const node = viewerRef.current;
     if (!node) return;
     const rect = node.getBoundingClientRect();
@@ -314,8 +317,6 @@ export default function App() {
       return;
     }
 
-    // Ako je pripremljena fotografija: postavi točku s fotkom.
-    // Inače, dopusti ručni unos (i bez fotke).
     const defTitle = `T${seqCounter + 1}`;
     const title = window.prompt("Naziv točke (npr. A123VIO):", defTitle) || defTitle;
 
@@ -386,8 +387,7 @@ export default function App() {
     const dataURL = await readFileAsDataURL(file);
     setStagedPhoto(dataURL);
     setStagedNotice(true);
-    // automatski isključi "TOČKA INFO" da korisnik može postaviti točku
-    setModeInfoOnly(false);
+    setModeInfoOnly(false); // omogućimo dodavanje na tap
   };
 
   const onGallerySelected = async (e) => {
@@ -507,12 +507,18 @@ export default function App() {
     </div>
   );
 
-  // Render jedne točke + tooltip + broj
+  // Render jedne točke + tooltip (hover/touch) + broj
   const renderPoint = (p) => {
-    const isHovered = hoverPointId === p.id;
+    const isOpen = hoverPointId === p.id;
     const left = `${p.x * 100}%`;
-    const top = `${p.y * 100}%`;
-    const ord = getOrdinalForPoint(p);
+    const top  = `${p.y * 100}%`;
+    const ord  = getOrdinalForPoint(p);
+
+    const showTipTouch = () => {
+      clearTimeout(hideTipTimeout.current);
+      setHoverPointId(p.id);
+      hideTipTimeout.current = setTimeout(() => setHoverPointId(null), 1600);
+    };
 
     return (
       <div
@@ -520,6 +526,8 @@ export default function App() {
         style={{ position: "absolute", left, top, transform: "translate(-50%, -50%)" }}
         onMouseEnter={() => setHoverPointId(p.id)}
         onMouseLeave={() => setHoverPointId(null)}
+        onTouchStart={showTipTouch}
+        onClick={(e) => e.stopPropagation()} // 🚫 klik/tap na točku ne dodaje novu točku
       >
         {/* marker s brojem */}
         <div
@@ -527,7 +535,6 @@ export default function App() {
             width: 22, height: 22, borderRadius: "50%",
             background: deco.gold, border: `2px solid ${deco.card}`,
             boxShadow: "0 1px 4px rgba(0,0,0,0.4)",
-            position: "relative",
             display: "flex", alignItems: "center", justifyContent: "center",
             fontSize: 11, fontWeight: 700, color: "#1a1a1a",
           }}
@@ -537,11 +544,11 @@ export default function App() {
         </div>
 
         {/* tooltip: Naziv + Datum + Vrijeme */}
-        {isHovered && (
+        {isOpen && (
           <div
             style={{
               position: "absolute", bottom: "120%", left: "50%", transform: "translateX(-50%)",
-              background: "rgba(0,0,0,0.85)", color: "#fff",
+              background: "rgba(0,0,0,0.9)", color: "#fff",
               padding: "6px 8px", borderRadius: 8, whiteSpace: "nowrap",
               fontSize: 12, pointerEvents: "none",
             }}
@@ -654,7 +661,7 @@ export default function App() {
               style={{ display: "none" }}
             />
 
-            {/* NAZIV TRAŽENE TIPKE */}
+            {/* TIPKA: TOČKA INFO */}
             <button style={{ ...btn.base }} onClick={() => setModeInfoOnly(s => !s)}>
               {modeInfoOnly ? "TOČKA INFO: UKLJUČENO" : "TOČKA INFO: ISKLJUČENO"}
             </button>
@@ -696,8 +703,8 @@ export default function App() {
               >
                 <Page
                   pageNumber={pageNumber}
-                  renderAnnotationLayer={true}
-                  renderTextLayer={true}
+                  renderTextLayer={false}        // ⛔️ onemogući text layer (nema highlighta)
+                  renderAnnotationLayer={false}  // ⛔️ onemogući annotation layer
                   width={900}
                 />
               </Document>
@@ -705,8 +712,8 @@ export default function App() {
               <div style={{ padding: 24, color: "#c7d3d7" }}>Dodaj PDF datoteku za prikaz.</div>
             )}
 
-            {/* Overlay točke */}
-            <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+            {/* Overlay točke - pointer events uključeni */}
+            <div style={{ position: "absolute", inset: 0, pointerEvents: "auto" }}>
               {pointsOnCurrent.map(renderPoint)}
             </div>
           </div>
@@ -772,11 +779,9 @@ export default function App() {
 
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 600, color: deco.ink, fontSize: compactList ? 12 : 14 }}>
-                        {/* 1) broj točke., 2) korisnički kod */}
                         {ord != null ? `${ord}. ` : ""}{p.title || "(bez naziva)"}
                       </div>
                       <div style={{ fontSize: 12, opacity: 0.9 }}>
-                        {/* Datum + Vrijeme kao dodatna informacija */}
                         Datum: {p.dateISO || "(n/a)"} · Vrijeme: {p.timeISO || "(n/a)"} · PDF: {pdfs[p.pdfIdx]?.name || "?"} · str: {p.page}
                       </div>
                       {!compactList && !!p.note && (
