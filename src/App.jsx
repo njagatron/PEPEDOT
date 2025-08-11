@@ -430,36 +430,57 @@ const fitToPage = () => {
   };
   const onDoubleClickViewer = (e) => { e.preventDefault(); addPointAtClientXY(e.clientX, e.clientY); };
 
-  // pan & zoom – miš
-  const onMouseDown = (e) => { if (e.button !== 0) return; if (!captureRef.current) return;
-    panState.current = { panning:true, startX:e.clientX, startY:e.clientY, originX:offset.x, originY:offset.y }; };
-  const onMouseMove = (e) => {
-    if (!panState.current.panning) return;
-    const dx = e.clientX - panState.current.startX;
-    const dy = e.clientY - panState.current.startY;
-    setOffset((prev) => clampOffset({ x: panState.current.originX + dx, y: panState.current.originY + dy }, zoom));
+// PAN – MIŠ (samo lijevi gumb i samo kad je Pan/Zoom fokus ON)
+const onMouseDown = (e) => {
+  if (!panFocus) return;               // isključeno = ne pani
+  if (e.button !== 0) return;          // samo lijevi gumb
+  if (!captureRef.current) return;
+  panState.current = {
+    panning: true,
+    startX: e.clientX,
+    startY: e.clientY,
+    originX: offset.x,
+    originY: offset.y
   };
-  const onMouseUp = () => { panState.current.panning = false; };
+};
+const onMouseMove = (e) => {
+  if (!panState.current.panning) return;
+  const dx = e.clientX - panState.current.startX;
+  const dy = e.clientY - panState.current.startY;
+  setOffset((prev) => clampOffset(
+    { x: panState.current.originX + dx, y: panState.current.originY + dy },
+    zoom
+  ));
+};
+const onMouseUp = () => { panState.current.panning = false; };
 
   // scroll = pan, Ctrl/Cmd + scroll = zoom
-  const onWheel = (e) => {
-    if (!captureRef.current) return;
-    e.preventDefault();
-    if (e.ctrlKey || e.metaKey) {
-      const rect = captureRef.current.getBoundingClientRect();
-      const mx = e.clientX - rect.left - offset.x;
-      const my = e.clientY - rect.top - offset.y;
-      const factor = e.deltaY < 0 ? 1.1 : 0.9;
-      const newZoom = clamp(zoom * factor, 1, 4);
-      const newOffset = { x: mx - (mx * newZoom) / zoom + offset.x, y: my - (my * newZoom) / zoom + offset.y };
-      const clamped = clampOffset(newOffset, newZoom);
-      setZoom(newZoom); setOffset(clamped);
-    } else {
-      const dx = e.shiftKey ? -e.deltaY : -e.deltaX;
-      const dy = -e.deltaY;
-      setOffset((prev) => clampOffset({ x: prev.x + (dx || 0), y: prev.y + dy }, zoom));
-    }
+const onWheel = (e) => {
+  if (!captureRef.current) return;
+  e.preventDefault();
+
+  // Shift + wheel = horizontalni pan (korisno kod šireg nacrta)
+  if (e.shiftKey) {
+    setOffset((prev) => clampOffset({ x: prev.x - e.deltaY, y: prev.y }, zoom));
+    return;
+  }
+
+  // Uvijek ZOOM (oko pokazivača)
+  const rect = captureRef.current.getBoundingClientRect();
+  const mx = e.clientX - rect.left - offset.x;
+  const my = e.clientY - rect.top - offset.y;
+
+  const factor = e.deltaY < 0 ? 1.1 : 0.9;
+  const newZoom = clamp(zoom * factor, 1, 4);
+
+  const newOffset = {
+    x: mx - (mx * newZoom) / zoom + offset.x,
+    y: my - (my * newZoom) / zoom + offset.y
   };
+  const clamped = clampOffset(newOffset, newZoom);
+  setZoom(newZoom);
+  setOffset(clamped);
+};
 
   // touch: pan + pinch
   const touchState = useRef({ touches: [], lastDist: 0 });
@@ -1045,6 +1066,8 @@ const onGallerySelected = async (e) => {
               onTouchStart={onTouchStart}
               onTouchMove={onTouchMove}
               onTouchEnd={onTouchEnd}
+              onContextMenu={(e) => e.preventDefault()}   // blokiraj desni klik meni preglednika
+              onAuxClick={(e) => e.preventDefault()}      // ignoriraj srednji klik
               onClick={(e) => {
   if (stagedPhoto) {
     // ako je fotka “na čekanju”, jednim klikom dodaj točku
