@@ -250,6 +250,7 @@ const persistActiveRn = () => {
 
   // NACRT (PDF)
   const onPdfLoadSuccess = ({ numPages }) => { setNumPages(numPages || 1); setTimeout(fitToPage, 0); };
+useEffect(() => { setTimeout(fitToPage, 0); }, [pageNumber]);
   const setActivePdf = (idx) => {
     if (idx >= 0 && idx < pdfs.length) {
       setActivePdfIdx(idx);
@@ -374,6 +375,20 @@ const fitToPage = () => {
   const wrapRect = wrap.getBoundingClientRect();
   const pageEl = inner.querySelector(".react-pdf__Page");
   if (!pageEl) { setZoom(1); setOffset({x:0,y:0}); return; }
+
+  const curZoom = zoom || 1;
+  const pageRect = pageEl.getBoundingClientRect();
+  const pageW = pageRect.width / curZoom;
+  const pageH = pageRect.height / curZoom;
+
+  const scale = Math.min((wrapRect.width - 8) / pageW, (wrapRect.height - 8) / pageH, 4);
+  const contentW = pageW * scale, contentH = pageH * scale;
+  const offX = Math.round((wrapRect.width - contentW) / 2);
+  const offY = Math.round((wrapRect.height - contentH) / 2);
+
+  setZoom(scale);
+  setOffset(clampOffset({ x: offX, y: offY }, scale));
+};
 
   // veličina stranice prije primjene transform-a
   const pageRect = pageEl.getBoundingClientRect();
@@ -1058,6 +1073,7 @@ const onGallerySelected = async (e) => {
               className="pdf-wrap"
               ref={captureRef}
               onDoubleClick={onDoubleClickViewer}
+              onClick={(e) => { if (stagedPhoto && !panFocus) addPointAtClientXY(e.clientX, e.clientY); }}
               onWheel={onWheel}
               onMouseDown={onMouseDown}
               onMouseMove={onMouseMove}
