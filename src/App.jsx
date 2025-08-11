@@ -257,7 +257,26 @@ export default function App() {
       setPdfs((prev) => [...prev, item]);
     } catch { window.alert("Neuspješno dodavanje nacrta."); }
   };
-
+const reattachPdfData = async (idx, file) => {
+  try {
+    const buf = await file.arrayBuffer();
+    const uint8 = new Uint8Array(buf);
+    setPdfs((prev) => prev.map((p, i) => i === idx ? { ...p, data: Array.from(uint8) } : p));
+    setTimeout(fitToPage, 0);
+  } catch {
+    window.alert("Neuspješno ponovno učitavanje nacrta.");
+  }
+};
+  const handleReattachPicker = (idx) => {
+  const input = document.createElement("input");
+  input.type = "file"; input.accept = ".pdf,application/pdf";
+  input.onchange = (e) => {
+    const file = e.target.files?.[0];
+    if (file) reattachPdfData(idx, file);
+    input.value = "";
+  };
+  input.click();
+};
   const handlePdfPicker = () => {
     if (!activeRn) { window.alert("Najprije odaberi ili kreiraj RN."); return; }
     const input = document.createElement("input");
@@ -293,10 +312,11 @@ export default function App() {
     setTimeout(fitToPage, 0);
   };
 
-  const activePdfFile = useMemo(() => {
-    const p = pdfs[activePdfIdx]; if (!p) return null;
-    return { data: new Uint8Array(p.data) };
-  }, [pdfs, activePdfIdx]);
+const activePdfFile = useMemo(() => {
+  const p = pdfs[activePdfIdx];
+  if (!p || !p.data || !p.data.length) return null; // nema bytes → ne pokušavaj renderirati
+  return { data: new Uint8Array(p.data) };
+}, [pdfs, activePdfIdx]);
 
   const pointsOnCurrent = useMemo(
     () => points.filter((p) => p.pdfIdx === activePdfIdx && p.page === pageNumber),
@@ -1022,25 +1042,29 @@ export default function App() {
               onTouchMove={onTouchMove}
               onTouchEnd={onTouchEnd}
             >
-              {activePdfFile ? (
-                <div
-                  ref={viewerInnerRef}
-                  style={{ position: "relative", lineHeight: 0, transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`, transformOrigin: "0 0" }}
-                >
-                  <Document
-                    file={activePdfFile}
-                    onLoadSuccess={onPdfLoadSuccess}
-                    onLoadError={(e) => { console.error("PDF load error:", e); }}
-                    loading={<div style={{ padding: 16 }}>Učitavanje nacrta…</div>}
-                    error={<div style={{ padding: 16, color: "#f3b0b0" }}>Greška pri učitavanju nacrta.</div>}
-                  >
-                    <Page
-                      className="pdf-page"
-                      pageNumber={pageNumber}
-                      renderTextLayer={false}
-                      renderAnnotationLayer={false}
-                      onRenderError={(e) => { console.error("PDF page render error:", e); }}
-                    />
+<div id="pdf-capture-area">
+  {activePdfFile ? (
+    <Document file={activePdfFile}>
+      <Page pageNumber={1} />
+    </Document>
+  ) : (
+    <div style={{ padding: 24, color: "#c7d3d7" }}>
+      {activeRn ? (
+        pdfs[activePdfIdx] ? (
+          <>
+            Ovaj nacrt je bez sadržaja nakon osvježenja (PDF bytes nisu spremljeni).{" "}
+            <button className="btn" onClick={() => handleReattachPicker(activePdfIdx)}>📄 Ponovno učitaj nacrt</button>
+          </>
+        ) : (
+          "Dodaj nacrt (PDF) za prikaz."
+        )
+      ) : (
+        "Kreiraj ili odaberi RN."
+      )}
+    </div>
+  )}
+</div>
+
                   </Document>
 
                   {/* sloj s točkama */}
