@@ -314,7 +314,7 @@ const reattachPdfData = async (idx, file) => {
 
 const activePdfFile = useMemo(() => {
   const p = pdfs[activePdfIdx];
-  if (!p || !p.data || !p.data.length) return null; // nema bytes → ne pokušavaj renderirati
+  if (!p || !p.data || !p.data.length) return null;
   return { data: new Uint8Array(p.data) };
 }, [pdfs, activePdfIdx]);
 
@@ -1025,35 +1025,63 @@ const activePdfFile = useMemo(() => {
               </div>
             </div>
 
-            <div
-              id="pdf-capture-area"
-              className="pdf-wrap"
-              ref={captureRef}
-              onClick={(e) => { if (stagedPhoto && !panFocus) addPointAtClientXY(e.clientX, e.clientY); }}
-              onDoubleClick={onDoubleClickViewer}
-              onWheel={onWheel}
-              onMouseDown={onMouseDown}
-              onMouseMove={onMouseMove}
-              onMouseUp={onMouseUp}
-              onMouseLeave={onMouseUp}
-              onContextMenu={(e) => e.preventDefault()}
-              onAuxClick={(e) => e.preventDefault()}
-              onTouchStart={onTouchStart}
-              onTouchMove={onTouchMove}
-              onTouchEnd={onTouchEnd}
-            >
-<div id="pdf-capture-area">
+<div
+  id="pdf-capture-area"
+  className="pdf-wrap"
+  ref={captureRef}
+  onClick={(e) => { if (stagedPhoto && !panFocus) addPointAtClientXY(e.clientX, e.clientY); }}
+  onDoubleClick={onDoubleClickViewer}
+  onWheel={onWheel}
+  onMouseDown={onMouseDown}
+  onMouseMove={onMouseMove}
+  onMouseUp={onMouseUp}
+  onMouseLeave={onMouseUp}
+  onContextMenu={(e) => e.preventDefault()}
+  onAuxClick={(e) => e.preventDefault()}
+  onTouchStart={onTouchStart}
+  onTouchMove={onTouchMove}
+  onTouchEnd={onTouchEnd}
+>
   {activePdfFile ? (
-    <Document file={activePdfFile}>
-      <Page pageNumber={1} />
-    </Document>
+    <div
+      ref={viewerInnerRef}
+      style={{
+        position: "relative",
+        lineHeight: 0,
+        transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
+        transformOrigin: "0 0",
+      }}
+    >
+      <Document
+        file={activePdfFile}
+        onLoadSuccess={onPdfLoadSuccess}
+        onLoadError={(e) => { console.error("PDF load error:", e); }}
+        loading={<div style={{ padding: 16 }}>Učitavanje nacrta…</div>}
+        error={<div style={{ padding: 16, color: "#f3b0b0" }}>Greška pri učitavanju nacrta.</div>}
+      >
+        <Page
+          className="pdf-page"
+          pageNumber={pageNumber}
+          renderTextLayer={false}
+          renderAnnotationLayer={false}
+          onRenderError={(e) => { console.error("PDF page render error:", e); }}
+        />
+      </Document>
+
+      {/* sloj s točkama */}
+      <div style={{ position: "absolute", inset: 0, pointerEvents: "auto", zIndex: 5 }}>
+        {pointsOnCurrent.map(renderPoint)}
+      </div>
+    </div>
   ) : (
     <div style={{ padding: 24, color: "#c7d3d7" }}>
       {activeRn ? (
         pdfs[activePdfIdx] ? (
           <>
-            Ovaj nacrt je bez sadržaja nakon osvježenja (PDF bytes nisu spremljeni).{" "}
-            <button className="btn" onClick={() => handleReattachPicker(activePdfIdx)}>📄 Ponovno učitaj nacrt</button>
+            Ovaj nacrt je bez sadržaja nakon osvježenja (PDF bytes nisu spremljeni).
+            <button className="btn" style={{ marginLeft: 8 }} onClick={() => handleReattachPicker(activePdfIdx)}>
+              📄 Ponovno učitaj nacrt
+            </button>
           </>
         ) : (
           "Dodaj nacrt (PDF) za prikaz."
