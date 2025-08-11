@@ -165,11 +165,21 @@ export default function App() {
     } catch (e) { console.error(e); }
   };
 
-  const persistActiveRn = () => {
-    if (!activeRn) return;
-    const payload = JSON.stringify({ rnName: activeRn, pdfs, activePdfIdx, pageNumber, pageMap, points, seqCounter });
-    safePersist(STORAGE_PREFIX + activeRn, payload);
-  };
+const persistActiveRn = () => {
+  if (!activeRn) return;
+  const slimPdfs = pdfs.map(p => ({ id: p.id, name: p.name, numPages: p.numPages || null }));
+  const payload = JSON.stringify({
+    rnName: activeRn,
+    pdfs: slimPdfs,             // bez data
+    activePdfIdx,
+    pageNumber,
+    pageMap,
+    points,
+    seqCounter
+  });
+  safePersist(STORAGE_PREFIX + activeRn, payload);
+};
+
   useEffect(() => { persistActiveRn(); }, [activeRn, pdfs, activePdfIdx, pageNumber, points, seqCounter, pageMap]); // eslint-disable-line
 
   // RN akcije
@@ -235,16 +245,16 @@ export default function App() {
   };
 
   // NACRT (PDF)
-  const onPdfLoadSuccess = ({ numPages }) => setNumPages(numPages || 1);
+  const onPdfLoadSuccess = ({ numPages }) => { setNumPages(numPages || 1); setTimeout(fitToPage, 0); };
   const setActivePdf = (idx) => {
     if (idx >= 0 && idx < pdfs.length) {
       setActivePdfIdx(idx);
       setPageNumber(pageMap[idx] || 1);
+      setTimeout(fitToPage, 0);
       resetView();
     }
   };
-  useEffect(() => { setPageMap((prev) => ({ ...prev, [activePdfIdx]: pageNumber })); }, [activePdfIdx, pageNumber]);
-
+  useEffect(() => { setTimeout(fitToPage, 0); }, [pageNumber]);
   const addPdf = async (file) => {
     if (pdfs.length >= MAX_PDFS) return window.alert(`Dosegnut je maksimalan broj nacrta (${MAX_PDFS}).`);
     try {
@@ -308,7 +318,7 @@ export default function App() {
 
   // kompresija slike
   const loadImage = (src) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src; });
-  const compressDataUrl = async (dataURL, maxSide = 1000, quality = 0.8) => {
+  const compressDataUrl = async (dataURL, maxSide = 900, quality = 0.7) => {
     const img = await loadImage(dataURL);
     const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
     const w = Math.round(img.width * scale);
@@ -328,22 +338,61 @@ export default function App() {
     });
 
   // pan/zoom granice
-  const clampOffset = (nextOffset, nextZoom = zoom) => {
-    const wrap = captureRef.current;
-    const inner = viewerInnerRef.current;
-    if (!wrap || !inner) return nextOffset;
-    const rect = wrap.getBoundingClientRect();
-    const canvas = inner.querySelector("canvas");
-    const baseW = canvas ? canvas.width : rect.width;
-    const baseH = canvas ? canvas.height : rect.height;
-    const contentW = baseW * nextZoom;
-    const contentH = baseH * nextZoom;
-    const minX = Math.min(0, rect.width - contentW);
-    const maxX = 0;
-    const minY = Math.min(0, rect.height - contentH);
-    const maxY = 0;
-    return { x: clamp(nextOffset.x, minX, maxX), y: clamp(nextOffset.y, minY, maxY) };
-  };
+const clampOffset = (nextOffset, nextZoom = zoom) => {
+  const wrap = captureRef.current;
+  const inner = viewerInnerRef.current;
+  if (!wrap || !inner) return nextOffset;
+
+  const wrapRect = wrap.getBoundingClientRect();
+
+  // mjeri stvarnu renderiranu veličinu PDF stranice (Page -> canvas)
+  const pageEl = inner.querySelector(".react-pdf__Page") || inner;
+  const pageRect = pageEl.getBoundingClientRect();
+  // baza je trenutna CSS veličina stranice, ne intrinsic canvas pikseli
+  const baseW = pageRect.width / (zoom || 1);
+  const baseH = pageRect.height / (zoom || 1);
+
+  const contentW = baseW * nextZoom;
+  const contentH = baseH * nextZoom;
+
+  const minX = Math.min(0, wrapRect.width - contentW);
+  const maxX = 0;
+  const minY = Math.min(0, wrapRect.height - contentH);
+  const maxY = 0;
+
+  return { x: Math.min(maxX, Math.max(minX, nextOffset.x)), y: Math.min(maxY, Math.max(minY, nextOffset.y)) };
+};
+const fitToPage = () => {
+  const wrap = captureRef.current;
+  const inner = viewerInnerRef.current;
+  if (!wrap || !inner) return;
+
+  const wrapRect = wrap.getBoundingClientRect();
+  const pageEl = inner.querySelector(".react-pdf__Page");
+  if (!pageEl) { setZoom(1); setOffset({x:0,y:0}); return; }
+
+  // veličina stranice prije primjene transform-a
+  const pageRect = pageEl.getBoundingClientRect();
+  const currentZoom = zoom || 1;
+  const pageW = pageRect.width / currentZoom;
+  const pageH = pageRect.height / currentZoom;
+
+  // zoom koji stanjuje cijelu stranicu u okvir
+  const scale = Math.min(
+    (wrapRect.width - 8) / pageW,
+    (wrapRect.height - 8) / pageH,
+    4 // cap
+  );
+
+  const contentW = pageW * scale;
+  const contentH = pageH * scale;
+
+  const offX = Math.round((wrapRect.width - contentW) / 2);
+  const offY = Math.round((wrapRect.height - contentH) / 2);
+
+  setZoom(scale);
+  setOffset(clampOffset({ x: offX, y: offY }, scale));
+};
 
   // dodavanje točke (dupli klik/tap)
   const addPointAtClientXY = (clientX, clientY) => {
@@ -455,8 +504,23 @@ export default function App() {
   // foto pickeri (kamera/galerija + edit)
   const onPickCamera = () => cameraInputRef.current?.click();
   const onPickGallery = () => galleryInputRef.current?.click();
-  const onCameraSelected = async (e) => { const f = e.target.files?.[0]; e.target.value=""; if (!f) return; const dataURL = await readAndCompress(f); setStagedPhoto(dataURL); setStagedNotice(true); };
-  const onGallerySelected = async (e) => { const f = e.target.files?.[0]; e.target.value=""; if (!f) return; const dataURL = await readAndCompress(f); setStagedPhoto(dataURL); setStagedNotice(true); };
+const onCameraSelected = async (e) => {
+  const f = e.target.files?.[0]; e.target.value="";
+  if (!f) return;
+  const dataURL = await readAndCompress(f);
+  setStagedPhoto(dataURL);
+  setStagedNotice(true);
+  setPanFocus(false); // olakšaj dodavanje
+};
+
+const onGallerySelected = async (e) => {
+  const f = e.target.files?.[0]; e.target.value="";
+  if (!f) return;
+  const dataURL = await readAndCompress(f);
+  setStagedPhoto(dataURL);
+  setStagedNotice(true);
+  setPanFocus(false); // olakšaj dodavanje
+};
   const onEditPhotoSelected = async (e) => { const file = e.target.files?.[0]; e.target.value=""; if (!file || !photoEditTargetId) return; const dataURL = await readAndCompress(file); setPoints((prev) => prev.map((p) => (p.id === photoEditTargetId ? { ...p, imageData: dataURL } : p))); setPhotoEditTargetId(null); };
   const startEditPhoto = (pointId) => { setPhotoEditTargetId(pointId); editPhotoInputRef.current?.click(); };
   const removePhotoFromPoint = (pointId) => { if (!window.confirm("Ukloniti fotku s ove točke?")) return; setPoints((prev) => prev.map((p) => (p.id === pointId ? { ...p, imageData: null } : p))); };
@@ -957,7 +1021,7 @@ export default function App() {
               <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
                 <button className="btn" onClick={() => { const nz = clamp(zoom * 1.1, 1, 4); setZoom(nz); setOffset((o)=>clampOffset(o,nz)); }}>🔍 +</button>
                 <button className="btn" onClick={() => { const nz = clamp(zoom * 0.9, 1, 4); setZoom(nz); setOffset((o)=>clampOffset(o,nz)); }}>🔍 −</button>
-                <button className="btn" onClick={resetView}>🔁 Fit</button>
+                <button className="btn" onClick={fitToPage}>🔁 Fit</button>
               </div>
             </div>
 
@@ -974,7 +1038,40 @@ export default function App() {
               onTouchStart={onTouchStart}
               onTouchMove={onTouchMove}
               onTouchEnd={onTouchEnd}
+              onClick={(e) => {
+  if (stagedPhoto) {
+    // ako je fotka “na čekanju”, jednim klikom dodaj točku
+    addPointAtClientXY(e.clientX, e.clientY);
+  }
+}}
             >
+              {/* Mobilni vertikalni slider za pan (samo touch) */}
+{isTouch && (
+  <input
+    type="range"
+    min="0"
+    max="1000"
+    defaultValue="500"
+    onChange={(e) => {
+      const wrap = captureRef.current;
+      const inner = viewerInnerRef.current;
+      if (!wrap || !inner) return;
+      const wrapRect = wrap.getBoundingClientRect();
+      const pageEl = inner.querySelector(".react-pdf__Page") || inner;
+      const pageRect = pageEl.getBoundingClientRect();
+      const baseW = pageRect.width / (zoom || 1);
+      const baseH = pageRect.height / (zoom || 1);
+      const contentH = baseH * zoom;
+      const minY = Math.min(0, wrapRect.height - contentH);
+      const maxY = 0;
+      // slider 0..1000 -> minY..maxY
+      const t = Number(e.target.value) / 1000;
+      const y = minY + (maxY - minY) * t;
+      setOffset((prev) => ({ x: prev.x, y }));
+    }}
+    style={{ position:"absolute", right: 6, top: 16, bottom: 16, zIndex: 20, writingMode:"bt-lr", transform:"rotate(180deg)", opacity:.8 }}
+  />
+)}
               {activePdfFile ? (
                 <div
                   ref={viewerInnerRef}
