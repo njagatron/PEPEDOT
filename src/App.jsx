@@ -465,18 +465,6 @@ export default function App() {
   };
   const deletePoint = (globalIdx) => { if (window.confirm("Obrisati točku?")) setPoints((prev) => prev.filter((_, i) => i !== globalIdx)); };
 
-  // foto (kamera/galerija)
-  const cameraInputRef = useRef(null);
-  const galleryInputRef = useRef(null);
-  const onPickCamera = () => cameraInputRef.current?.click();
-  const onPickGallery = () => galleryInputRef.current?.click();
-  const onCameraSelected = async (e) => { const f = e.target.files?.[0]; e.target.value=""; if (!f) return; const dataURL = await readAndCompress(f); setStagedPhoto(dataURL); setStagedNotice(true); };
-  const onGallerySelected = async (e) => { const f = e.target.files?.[0]; e.target.value=""; if (!f) return; const dataURL = await readAndCompress(f); setStagedPhoto(dataURL); setStagedNotice(true); };
-  const [photoEditTargetId, setPhotoEditTargetId] = useState(null);
-  const onEditPhotoSelected = async (e) => { const file = e.target.files?.[0]; e.target.value=""; if (!file || !photoEditTargetId) return; const dataURL = await readAndCompress(file); setPoints((prev) => prev.map((p) => (p.id === photoEditTargetId ? { ...p, imageData: dataURL } : p))); setPhotoEditTargetId(null); };
-  const startEditPhoto = (pointId) => { setPhotoEditTargetId(pointId); editPhotoInputRef.current?.click(); };
-  const removePhotoFromPoint = (pointId) => { if (!window.confirm("Ukloniti fotku s ove točke?")) return; setPoints((prev) => prev.map((p) => (p.id === pointId ? { ...p, imageData: null } : p))); };
-
   // ===== EXPORT (screenshot viewporta) =====
   const snapshotFitToCanvas = async () => {
     const prev = { zoom, offset };
