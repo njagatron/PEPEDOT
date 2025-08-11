@@ -163,3 +163,17 @@ img{ max-width:100%; display:block; }
   .pdf-page{ width: min(100vw - 64px, 1280px) !important; }
   .pdf-wrap{ min-height: 600px; }
 }
+.app-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ver-badge {
+  font-size: 0.8em;
+  color: #c7d3d7;
+  background: #132b31;
+  border: 1px solid #12343b;
+  border-radius: 8px;
+  padding: 2px 8px;
+}
