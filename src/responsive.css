@@ -177,3 +177,9 @@ img{ max-width:100%; display:block; }
   border-radius: 8px;
   padding: 2px 8px;
 }
+/* Viewer treba preuzeti geste – bez selekcije teksta i nativnih gesti */
+.pdf-wrap {
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none; /* spriječi dvostruke pinch/scroll konflikte na mobitelu */
+}
