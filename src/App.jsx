@@ -1,3 +1,4 @@
+import packageJson from "../package.json";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import html2canvas from "html2canvas";
@@ -40,6 +41,9 @@ export default function App() {
   const STORAGE_PREFIX = "pepedot2_rn_";
   const MAX_PDFS = 10;
   const MAX_RN = 10;
+  const APP_VERSION = packageJson?.version || "0.0.0";
+// Commit je opcionalan; ako ga ne postaviš u buildu, neće se prikazati
+const APP_COMMIT = (process.env.REACT_APP_COMMIT || "").slice(0, 7);
 
   const deco = { bg:"#0d1f24", card:"#10282f", edge:"#12343b", ink:"#e7ecef", gold:"#c9a227", accent:"#2a6f77" };
   const panel = { background:deco.card, border:`1px solid ${deco.edge}`, borderRadius:14, padding:12, boxShadow:"0 1px 0 rgba(255,255,255,0.03) inset, 0 6px 24px rgba(0,0,0,0.25)" };
@@ -913,15 +917,18 @@ const onGallerySelected = async (e) => {
   return (
     <ErrorBoundary>
       {/* dijagnostika u kutu */}
-      <div style={{ position:"fixed", top:8, right:8, zIndex:99999, fontSize:12, color:"#b7c6cb", background:"#10282f", border:"1px solid #12343b", borderRadius:8, padding:"6px 8px" }}>
-        {mounted ? "App: OK" : "App: mounting…"} · RN:{rnList.length} · PDF:{pdfs.length}
-      </div>
+<div style={{ position:"fixed", top:8, right:8, zIndex:99999, fontSize:12, color:"#b7c6cb", background:"#10282f", border:"1px solid #12343b", borderRadius:8, padding:"6px 8px" }}>
+  {mounted ? "App: OK" : "App: mounting…"} · v{APP_VERSION}{APP_COMMIT ? ` ${APP_COMMIT}` : ""} · RN:{rnList.length} · PDF:{pdfs.length}
+</div>
 
       <div style={{ minHeight: "100vh", background: deco.bg, color: deco.ink, fontFamily: "Inter,system-ui,Arial,sans-serif" }}>
         <div style={{ maxWidth: 1180, margin: "0 auto", padding: 16 }}>
           {/* HEADER */}
           <header className="header">
-            <h1 className="app-title">PEPEDOT - FOTOTOČKA NANACRTU</h1>
+            <h1 className="app-title">
+  PEPEDOT - FOTOTOČKA NANACRTU
+  <span className="ver-badge">· v{APP_VERSION}{APP_COMMIT ? ` (${APP_COMMIT})` : ""}</span>
+</h1>
 
             <div className="header-actions">
               <div className="export-wrap">
