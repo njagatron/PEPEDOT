@@ -1093,20 +1093,6 @@ const activePdfFile = useMemo(() => {
   )}
 </div>
 
-                  </Document>
-
-                  {/* sloj s točkama */}
-                  <div style={{ position: "absolute", inset: 0, pointerEvents: "auto", zIndex: 5 }}>
-                    {pointsOnCurrent.map(renderPoint)}
-                  </div>
-                </div>
-              ) : (
-                <div style={{ padding: 24, color: "#c7d3d7" }}>
-                  {activeRn ? "Dodaj nacrt (PDF) za prikaz." : "Kreiraj ili odaberi RN."}
-                </div>
-              )}
-            </div>
-
             {!!pdfs.length && (
               <div className="pager">
                 <button className="btn" onClick={() => setPageNumber((n) => Math.max(1, n - 1))} disabled={pageNumber <= 1}>◀︎</button>
